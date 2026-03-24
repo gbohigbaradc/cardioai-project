@@ -1,0 +1,495 @@
+# ============================================================
+# CARDIOAI — STREAMLIT WEB APPLICATION
+# File: app/streamlit_app.py
+# ============================================================
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use("Agg")
+import shap
+import joblib
+import re
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+st.set_page_config(
+    page_title="CardioAI — Cardiovascular Risk & Patient Retention",
+    page_icon="🫀",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+st.markdown("""
+<style>
+    .risk-low      { background:#d4edda; color:#155724; padding:12px; border-radius:8px; border-left:4px solid #28a745; }
+    .risk-moderate { background:#fff3cd; color:#856404; padding:12px; border-radius:8px; border-left:4px solid #ffc107; }
+    .risk-high     { background:#f8d7da; color:#721c24; padding:12px; border-radius:8px; border-left:4px solid #dc3545; }
+    .risk-veryhigh { background:#f5c6cb; color:#491217; padding:12px; border-radius:8px; border-left:4px solid #a71d2a; font-weight:bold; }
+    .section-header { font-size:1.1rem; font-weight:600; color:#1F4E79; border-bottom:2px solid #2E75B6; padding-bottom:6px; margin-bottom:14px; }
+</style>
+""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════
+# TESSERACT SETUP
+# Auto-detects Windows install path. Streamlit Cloud uses
+# system tesseract so no path needed there.
+# ══════════════════════════════════════════════════════════
+
+def setup_tesseract():
+    try:
+        import pytesseract
+        import platform
+        if platform.system() == "Windows":
+            windows_paths = [
+                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                r"C:\Users\User\AppData\Local\Tesseract-OCR\tesseract.exe",
+                r"C:\tesseract\tesseract.exe",
+            ]
+            for path in windows_paths:
+                if os.path.exists(path):
+                    pytesseract.pytesseract.tesseract_cmd = path
+                    break
+        version = pytesseract.get_tesseract_version()
+        return True, f"Tesseract {version} ready"
+    except ImportError:
+        return False, "pytesseract not installed"
+    except Exception as e:
+        return False, f"Tesseract not found — install tesseract-ocr-w64-setup-5_5_0.exe"
+
+TESSERACT_OK, TESSERACT_MSG = setup_tesseract()
+
+# ══════════════════════════════════════════════════════════
+# MODEL LOADING
+# ══════════════════════════════════════════════════════════
+
+@st.cache_resource
+def load_models():
+    models = {}
+    files = {
+        "cardio_xgb":      "models/cardio_xgb.pkl",
+        "cardio_rf":       "models/cardio_rf.pkl",
+        "cardio_logistic": "models/cardio_logistic.pkl",
+        "retention_rf":    "models/retention_rf.pkl",
+        "retention_xgb":   "models/retention_xgb.pkl",
+        "scaler":          "models/scaler.pkl",
+        "scaler_ret":      "models/scaler_retention.pkl",
+    }
+    for name, path in files.items():
+        models[name] = joblib.load(path) if os.path.exists(path) else None
+    return models
+
+@st.cache_resource
+def load_explainer(_model):
+    if _model is None:
+        return None
+    return shap.TreeExplainer(_model)
+
+# ══════════════════════════════════════════════════════════
+# HELPERS
+# ══════════════════════════════════════════════════════════
+
+def compute_lri(trestbps, chol, fbs, exang, oldpeak):
+    def norm(v, lo, hi): return (v - lo) / (hi - lo + 1e-8)
+    return round(
+        norm(chol, 126, 564) * 0.25 + norm(trestbps, 94, 200) * 0.25 +
+        fbs * 0.20 + exang * 0.15 + norm(oldpeak, 0, 6.2) * 0.15, 4
+    )
+
+def get_risk_badge(p):
+    if p < 0.30:   return "LOW RISK",      "risk-low",      "✓"
+    elif p < 0.60: return "MODERATE RISK", "risk-moderate", "⚠"
+    elif p < 0.80: return "HIGH RISK",     "risk-high",     "⚠⚠"
+    else:          return "VERY HIGH RISK","risk-veryhigh",  "✗✗"
+
+def build_features(age, sex, cp, trestbps, chol, fbs, restecg, thalach,
+                   exang, oldpeak, slope, ca, thal):
+    return pd.DataFrame([{
+        "age": age, "sex": sex, "trestbps": trestbps, "chol": chol,
+        "fbs": fbs, "thalach": thalach, "exang": exang, "oldpeak": oldpeak,
+        "ca": ca, "lifestyle_risk_index": compute_lri(trestbps, chol, fbs, exang, oldpeak),
+        "cp_1": int(cp==1), "cp_2": int(cp==2), "cp_3": int(cp==3),
+        "restecg_1": int(restecg==1), "restecg_2": int(restecg==2),
+        "slope_1": int(slope==1), "slope_2": int(slope==2),
+        "thal_1": int(thal==1), "thal_2": int(thal==2), "thal_3": int(thal==3),
+    }])
+
+def run_ocr(img):
+    import pytesseract
+    from PIL import ImageFilter, ImageEnhance, Image
+    g = img.convert("L")
+    g = ImageEnhance.Contrast(g).enhance(2.0)
+    g = g.filter(ImageFilter.SHARPEN)
+    w, h = g.size
+    if w < 1500:
+        g = g.resize((int(w * 1500 / w), int(h * 1500 / w)), Image.LANCZOS)
+    return pytesseract.image_to_string(g, config="--oem 3 --psm 6 -l eng").strip()
+
+def extract_entities(text):
+    e = {}
+    bp = re.findall(r"(?<!\d)(1\d{2}|2[0-4]\d|9\d)\/((?:[5-9]\d)|(?:1[0-2]\d))(?!\d)(?:\s*mmHg)?", text)
+    e["bp"] = [{"sys": int(s), "dia": int(d), "hyp": int(s)>=140 or int(d)>=90} for s, d in bp]
+    e["hr"] = [int(v) for v in re.findall(r"(?:Heart Rate|HR|Pulse)[:\s]+(\d{2,3})\s*(?:bpm)?", text, re.IGNORECASE)]
+    e["temp"] = [float(v) for v in re.findall(r"(?:Temp|Temperature)[:\s]+([\d.]+)\s*°?C", text, re.IGNORECASE)]
+    e["weight"] = [float(v) for v in re.findall(r"(?:Weight|Wt)[:\s]+([\d.]+)\s*kg", text, re.IGNORECASE)]
+    meds = re.findall(r"([A-Z][a-z]{3,}-?[a-z]*)\s+(\d+(?:\.\d+)?(?:mg|mcg|g|ml|IU))", text)
+    e["meds"] = [f"{m} {d}" for m, d in meds if len(m) > 4]
+    dx_list = ["hypertension","diabetes","coronary artery disease","heart failure",
+               "angina","arrhythmia","stroke","myocardial infarction","atrial fibrillation","obesity"]
+    e["dx"] = [k.title() for k in dx_list if k in text.lower()]
+    e["smoking"]   = bool(re.search(r"smok|cigarette|tobacco", text, re.IGNORECASE))
+    e["sedentary"] = bool(re.search(r"sedentary|no exercise|inactive", text, re.IGNORECASE))
+    e["active"]    = bool(re.search(r"regular exercise|active|gym|jogging", text, re.IGNORECASE))
+    e["alcohol"]   = bool(re.search(r"alcohol|drinking", text, re.IGNORECASE))
+    e["poor_diet"] = bool(re.search(r"high sodium|poor diet|unhealthy|fast food", text, re.IGNORECASE))
+    return e
+
+def show_entities(e):
+    st.subheader("Extracted Clinical Entities")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Vitals**")
+        if e["bp"]:
+            for b in e["bp"]:
+                msg = f"Blood Pressure: {b['sys']}/{b['dia']} mmHg — {'⚠ HYPERTENSIVE' if b['hyp'] else '✓ Normal'}"
+                st.error(msg) if b["hyp"] else st.success(msg)
+        else:
+            st.info("Blood Pressure: not found")
+        if e["hr"]:  st.success(f"Heart Rate: {', '.join(str(v) for v in e['hr'])} bpm")
+        else:        st.info("Heart Rate: not found")
+        if e["temp"]:   st.success(f"Temperature: {e['temp'][0]} °C")
+        if e["weight"]: st.success(f"Weight: {e['weight'][0]} kg")
+    with c2:
+        st.markdown("**Diagnoses**")
+        if e["dx"]:
+            st.warning(f"{len(e['dx'])} diagnosis detected")
+            for d in e["dx"]: st.write(f"  • {d}")
+        else:
+            st.info("No diagnoses detected")
+        st.markdown("**Medications**")
+        if e["meds"]:
+            st.info(f"{len(e['meds'])} medication(s)")
+            for m in e["meds"]: st.write(f"  • {m}")
+        else:
+            st.info("No medications detected")
+
+    st.markdown("**Lifestyle Risk Flags**")
+    l1, l2, l3, l4 = st.columns(4)
+    with l1: st.error("Smoking: PRESENT") if e["smoking"] else st.success("Smoking: None")
+    with l2:
+        if e["sedentary"]: st.error("Activity: SEDENTARY")
+        elif e["active"]:  st.success("Activity: Active")
+        else:              st.info("Activity: Unknown")
+    with l3: st.warning("Alcohol: YES") if e["alcohol"] else st.success("Alcohol: None")
+    with l4: st.error("Diet: POOR") if e["poor_diet"] else st.info("Diet: Not assessed")
+
+    st.divider()
+    st.subheader("Auto-fill Guidance for Risk Prediction")
+    st.caption("Use these values when filling in the Risk Prediction form.")
+    found = False
+    if e["bp"]:
+        st.write(f"**Resting Blood Pressure:** {e['bp'][0]['sys']} mmHg"); found = True
+    if e["hr"]:
+        st.write(f"**Max Heart Rate (estimate):** {e['hr'][0]} bpm"); found = True
+    if e["smoking"]:
+        st.write("**Exercise Angina:** Consider setting to Yes — smoker"); found = True
+    if any("diabetes" in d.lower() for d in e["dx"]):
+        st.write("**Fasting Blood Sugar:** Set to Yes — diabetes confirmed"); found = True
+    if not found:
+        st.info("No specific values extracted. Enter patient data manually.")
+
+# ══════════════════════════════════════════════════════════
+# SIDEBAR
+# ══════════════════════════════════════════════════════════
+
+models = load_models()
+xgb_explainer = load_explainer(models.get("cardio_xgb"))
+
+with st.sidebar:
+    st.image("https://img.icons8.com/color/96/heart-with-pulse.png", width=64)
+    st.title("CardioAI")
+    st.caption("Explainable AI for Cardiovascular Risk & Patient Retention")
+    st.divider()
+    page = st.radio("Navigate", ["🫀 Risk Prediction","📊 Model Dashboard","📄 Clinical NLP","ℹ️ About"], label_visibility="collapsed")
+    st.divider()
+    if TESSERACT_OK: st.success(f"OCR: {TESSERACT_MSG}")
+    else:            st.warning(f"OCR: {TESSERACT_MSG}")
+    st.caption("⚠ Decision support only. Not a diagnostic tool.")
+
+# ══════════════════════════════════════════════════════════
+# PAGE 1 — RISK PREDICTION
+# ══════════════════════════════════════════════════════════
+
+if "Risk Prediction" in page:
+    st.title("🫀 Cardiovascular Risk Prediction")
+    st.caption("Enter patient clinical data to generate a cardiovascular risk assessment with explainable AI.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown('<div class="section-header">Patient Demographics & Vitals</div>', unsafe_allow_html=True)
+        age      = st.slider("Age (years)", 29, 80, 55)
+        sex      = st.selectbox("Sex", [0,1], format_func=lambda x: "Female" if x==0 else "Male")
+        trestbps = st.slider("Resting Blood Pressure (mmHg)", 90, 210, 130)
+        chol     = st.slider("Serum Cholesterol (mg/dl)", 100, 600, 240)
+        thalach  = st.slider("Maximum Heart Rate Achieved (bpm)", 60, 210, 150)
+    with c2:
+        st.markdown('<div class="section-header">Clinical Measurements</div>', unsafe_allow_html=True)
+        cp      = st.selectbox("Chest Pain Type", [0,1,2,3], format_func=lambda x: ["Typical Angina","Atypical Angina","Non-Anginal Pain","Asymptomatic"][x])
+        fbs     = st.selectbox("Fasting Blood Sugar > 120 mg/dl", [0,1], format_func=lambda x: "No" if x==0 else "Yes")
+        restecg = st.selectbox("Resting ECG", [0,1,2], format_func=lambda x: ["Normal","ST Abnormality","LV Hypertrophy"][x])
+        exang   = st.selectbox("Exercise Induced Angina", [0,1], format_func=lambda x: "No" if x==0 else "Yes")
+        oldpeak = st.slider("ST Depression (oldpeak)", 0.0, 6.5, 1.0, 0.1)
+        slope   = st.selectbox("Slope of Peak ST Segment", [0,1,2], format_func=lambda x: ["Downsloping","Flat","Upsloping"][x])
+        ca      = st.slider("Major Vessels Coloured (0-4)", 0, 4, 0)
+        thal    = st.selectbox("Thalassemia", [0,1,2,3], format_func=lambda x: ["Normal","Fixed Defect","Normal (2)","Reversible Defect"][x])
+
+    with st.expander("📋 Patient Retention Assessment (optional)"):
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            exercise_diff = st.slider("Exercise Difficulty (1-5)", 1, 5, 3)
+            q_burden      = st.slider("Questionnaire Burden (1-10)", 1, 10, 5)
+            waiting_time  = st.slider("Waiting Time (minutes)", 5, 90, 20)
+        with rc2:
+            travel_dist   = st.slider("Travel Distance (km)", 1, 80, 15)
+            perceived_imp = st.slider("Perceived Improvement (1-5)", 1, 5, 3)
+            has_insurance = st.selectbox("Has Insurance", [0,1], format_func=lambda x: "No" if x==0 else "Yes")
+
+    st.divider()
+    if st.button("🔍 Generate Risk Assessment", type="primary", use_container_width=True):
+        X_input = build_features(age, sex, cp, trestbps, chol, fbs, restecg, thalach, exang, oldpeak, slope, ca, thal)
+        scaler    = models.get("scaler")
+        xgb_model = models.get("cardio_xgb")
+
+        if xgb_model is None or scaler is None:
+            st.error("Models not loaded. Run 01_preprocessing.py and 03_model_training.py first, then restart.")
+        else:
+            try:
+                X_scaled = pd.DataFrame(scaler.transform(X_input.reindex(columns=scaler.feature_names_in_, fill_value=0)), columns=scaler.feature_names_in_)
+            except Exception:
+                X_scaled = pd.DataFrame(scaler.transform(X_input), columns=X_input.columns)
+
+            risk_prob = xgb_model.predict_proba(X_scaled)[0][1]
+            tier, css, icon = get_risk_badge(risk_prob)
+
+            st.markdown("---")
+            st.subheader("Assessment Results")
+            m1, m2, m3 = st.columns(3)
+            with m1: st.metric("Cardiovascular Risk", f"{risk_prob*100:.1f}%")
+            with m2: st.metric("Lifestyle Risk Index", f"{compute_lri(trestbps, chol, fbs, exang, oldpeak):.2f}/1.0")
+            with m3: st.metric("Risk Classification", tier)
+            st.markdown(f'<div class="{css}">{icon} <strong>{tier}</strong> — Predicted probability: <strong>{risk_prob*100:.1f}%</strong></div>', unsafe_allow_html=True)
+
+            if xgb_explainer is not None:
+                st.subheader("Why this prediction? (SHAP Explanation)")
+                st.caption("Red = increases risk. Blue = decreases risk.")
+                try:
+                    sv = xgb_explainer.shap_values(X_scaled)
+                    if isinstance(sv, list): sv = sv[1]
+                    elif len(sv.shape) == 3: sv = sv[:,:,1]
+                    sv_row = sv[0]
+                    sdf = pd.DataFrame({"Feature": list(X_input.columns), "SHAP": sv_row}).sort_values("SHAP", key=abs, ascending=False).head(10)
+                    fig, ax = plt.subplots(figsize=(9, 5))
+                    colors = ["#E53935" if v > 0 else "#1E88E5" for v in sdf["SHAP"]]
+                    ax.barh(sdf["Feature"][::-1], sdf["SHAP"][::-1], color=colors[::-1], edgecolor="white", height=0.6)
+                    ax.axvline(0, color="black", linewidth=0.8)
+                    ax.set_xlabel("SHAP Value (← reduces risk | increases risk →)")
+                    ax.set_title("Feature Contributions to Prediction")
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    plt.close()
+                except Exception as e:
+                    st.info(f"SHAP explanation unavailable: {e}")
+
+            ret_model  = models.get("retention_rf")
+            scaler_ret = models.get("scaler_ret")
+            if ret_model and scaler_ret:
+                try:
+                    rf = pd.DataFrame([{"exercise_difficulty": exercise_diff, "questionnaire_burden": q_burden,
+                        "waiting_time_minutes": waiting_time, "travel_distance_km": travel_dist,
+                        "previous_visits": 3, "missed_appointment": 0, "has_insurance": has_insurance,
+                        "perceived_improvement": perceived_imp, "age_group_encoded": 2, "visit_reason_encoded": 0}])
+                    dp = ret_model.predict_proba(scaler_ret.transform(rf))[0][0]
+                    st.subheader("Patient Retention Risk")
+                    rr1, rr2 = st.columns(2)
+                    with rr1: st.metric("Dropout Probability", f"{dp*100:.1f}%")
+                    with rr2:
+                        if dp > 0.6: st.error("⚠ High Dropout Risk — proactive outreach recommended")
+                        else:        st.success("✓ Patient likely to continue treatment")
+                except Exception as e:
+                    st.warning(f"Retention model unavailable: {e}")
+
+            st.subheader("Clinical Recommendations")
+            if risk_prob >= 0.60:
+                st.error("🚨 URGENT: Refer to cardiologist. Order ECG, lipid panel, HbA1c, echocardiogram.")
+                st.warning("Review antihypertensive medication. Prescribe cardiac rehabilitation.")
+            elif risk_prob >= 0.30:
+                st.warning("⚠ Schedule cardiology consultation within 4–6 weeks.")
+                st.info("Lifestyle counselling: diet, exercise, smoking cessation.")
+            else:
+                st.success("✓ Low Risk. Continue annual screening and healthy lifestyle maintenance.")
+
+# ══════════════════════════════════════════════════════════
+# PAGE 2 — MODEL DASHBOARD
+# ══════════════════════════════════════════════════════════
+
+elif "Model Dashboard" in page:
+    st.title("📊 Model Performance Dashboard")
+    if os.path.exists("outputs/model_comparison.csv"):
+        df = pd.read_csv("outputs/model_comparison.csv")
+        st.subheader("All Models — Performance Metrics")
+        st.dataframe(df.set_index("Model").style.highlight_max(subset=["AUC-ROC","F1","Recall"], color="#d4edda").highlight_min(subset=["Brier"], color="#d4edda"), use_container_width=True)
+        cdf = df[~df["Model"].str.contains("Retention")]
+        fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+        for i, metric in enumerate(["AUC-ROC","F1","Recall"]):
+            axes[i].bar(cdf["Model"], cdf[metric], color=["#2196F3","#E53935","#4CAF50","#FF9800"])
+            axes[i].set_title(metric); axes[i].set_ylim(0, 1)
+            axes[i].axhline(0.8, color="red", linestyle="--", alpha=0.4)
+            axes[i].tick_params(axis="x", rotation=20, labelsize=8)
+        plt.suptitle("Cardiovascular Risk Models", fontweight="bold")
+        plt.tight_layout(); st.pyplot(fig); plt.close()
+    else:
+        st.info("Run 03_model_training.py first to generate model data.")
+    if os.path.exists("outputs/roc_curves.png"):
+        st.subheader("ROC Curves")
+        st.image("outputs/roc_curves.png", use_container_width=True)
+    if os.path.exists("outputs/shap_summary_beeswarm.png"):
+        st.subheader("SHAP Feature Importance")
+        sc1, sc2 = st.columns(2)
+        with sc1: st.image("outputs/shap_summary_bar.png", caption="Global Importance", use_container_width=True)
+        with sc2: st.image("outputs/shap_summary_beeswarm.png", caption="Direction & Magnitude", use_container_width=True)
+
+# ══════════════════════════════════════════════════════════
+# PAGE 3 — CLINICAL NLP + OCR
+# ══════════════════════════════════════════════════════════
+
+elif "Clinical NLP" in page:
+    st.title("📄 Clinical Document Processing")
+    st.caption("Upload a scanned image, PDF, or paste text — extract structured clinical data using Tesseract OCR and NLP.")
+
+    if TESSERACT_OK: st.success(f"OCR Engine: {TESSERACT_MSG}")
+    else:            st.warning(f"OCR Engine: {TESSERACT_MSG} — image OCR unavailable, paste text instead.")
+
+    st.divider()
+
+    method = st.radio("Input method:", ["📝 Paste text", "🖼 Upload image (JPG/PNG scan)", "📑 Upload PDF"], horizontal=True)
+
+    raw_text = ""
+
+    if "Paste" in method:
+        raw_text = st.text_area("Paste clinical note here:", height=320,
+            placeholder="Patient: M, 62 years\nBP: 148/92 mmHg\nDiagnosis: Hypertension, Type 2 Diabetes\nMedications: Amlodipine 10mg, Metformin 500mg\nSmoker: 15 cigarettes/day...")
+
+    elif "image" in method:
+        st.info("Supported: JPG, JPEG, PNG — photos of handwritten notes or scanned documents")
+        uploaded_img = st.file_uploader("Upload scanned document", type=["jpg","jpeg","png"])
+        if uploaded_img is not None:
+            from PIL import Image
+            img = Image.open(uploaded_img)
+            st.image(img, caption=f"Uploaded: {uploaded_img.name}", use_container_width=True)
+            if TESSERACT_OK:
+                with st.spinner("Running Tesseract OCR — reading text from image..."):
+                    try:
+                        raw_text = run_ocr(img)
+                        if raw_text.strip():
+                            st.success(f"OCR complete — {len(raw_text.split())} words extracted")
+                            with st.expander("View raw OCR output"):
+                                st.text_area("Extracted text:", raw_text, height=200)
+                        else:
+                            st.warning("OCR found no text. Try a clearer image or paste manually.")
+                            raw_text = st.text_area("Paste text manually:", height=200)
+                    except Exception as e:
+                        st.error(f"OCR error: {e}")
+                        raw_text = st.text_area("Paste text manually:", height=200)
+            else:
+                st.warning("Tesseract not available. Please paste the document text manually.")
+                raw_text = st.text_area("Paste text from document:", height=200)
+
+    elif "PDF" in method:
+        st.info("For typed/digital PDFs. For scanned PDFs use image upload instead.")
+        uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"])
+        if uploaded_pdf is not None:
+            import io
+            with st.spinner("Extracting text from PDF..."):
+                try:
+                    import pdfplumber
+                    with pdfplumber.open(io.BytesIO(uploaded_pdf.read())) as pdf:
+                        pages = [p.extract_text() for p in pdf.pages if p.extract_text()]
+                        raw_text = "\n".join(f"--- Page {i+1} ---\n{t}" for i, t in enumerate(pages))
+                    if raw_text.strip():
+                        st.success(f"PDF processed — {len(raw_text.split())} words extracted")
+                        with st.expander("View extracted text"):
+                            st.text_area("PDF content:", raw_text[:4000], height=200)
+                    else:
+                        st.warning("No text found — this may be a scanned PDF. Use image upload instead.")
+                        raw_text = st.text_area("Paste text manually:", height=200)
+                except ImportError:
+                    st.warning("pdfplumber not installed. Paste PDF text manually.")
+                    raw_text = st.text_area("Paste text from PDF:", height=200)
+                except Exception as e:
+                    st.error(f"PDF error: {e}")
+                    raw_text = st.text_area("Paste text manually:", height=200)
+
+    st.divider()
+    if st.button("🔍 Extract Clinical Entities", type="primary", use_container_width=True):
+        if raw_text and raw_text.strip():
+            with st.spinner("Running NLP extraction..."):
+                try:
+                    entities = extract_entities(raw_text)
+                    show_entities(entities)
+                except Exception as e:
+                    st.error(f"Extraction error: {e}")
+        else:
+            st.warning("Please provide a document first — upload a file or paste text above.")
+
+# ══════════════════════════════════════════════════════════
+# PAGE 4 — ABOUT
+# ══════════════════════════════════════════════════════════
+
+elif "About" in page:
+    st.title("ℹ️ About CardioAI")
+    st.markdown("""
+    ### Explainable AI System for Cardiovascular Risk & Patient Retention
+
+    Developed as part of a dual-capstone research project applying machine learning,
+    NLP, and explainable AI to preventive healthcare and patient engagement in
+    rehabilitation settings — with focus on Nigeria (Lagos and Port Harcourt).
+
+    ---
+
+    **System Components**
+
+    | Component | Description |
+    |-----------|-------------|
+    | Cardiovascular Risk Model | XGBoost & Random Forest trained on UCI Heart Disease data |
+    | Lifestyle Risk Index | Original composite behavioural risk score |
+    | Explainable AI (SHAP) | Feature attribution for every individual prediction |
+    | Patient Retention Model | Predicts dropout risk from operational factors |
+    | Clinical NLP + OCR | Extracts data from typed notes, scanned images, and PDFs |
+    | Streamlit Dashboard | Interactive clinical decision support interface |
+
+    ---
+
+    **Model Performance**
+    - Best Model: XGBoost / Random Forest
+    - AUC-ROC: ~0.93
+    - Sensitivity: ~91%
+
+    **OCR Engine**
+    - Tesseract OCR v5.5
+    - Supports printed and handwritten clinical documents
+    - Languages: English
+
+    ---
+
+    **Disclaimer**
+
+    This tool is for research and clinical decision **support** only.
+    It does not replace professional medical judgment.
+
+    Developed by JoiHealth — `cardioai-joihealth.streamlit.app`
+    """)
