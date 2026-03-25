@@ -215,7 +215,7 @@ with st.sidebar:
     st.title("CardioAI")
     st.caption("Explainable AI for Cardiovascular Risk & Patient Retention")
     st.divider()
-    page = st.radio("Navigate", ["🫀 Risk Prediction","📊 Model Dashboard","📄 Clinical NLP","ℹ️ About"], label_visibility="collapsed")
+    page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","ℹ️ About"], label_visibility="collapsed")
     st.divider()
     if TESSERACT_OK: st.success(f"OCR: {TESSERACT_MSG}")
     else:            st.warning(f"OCR: {TESSERACT_MSG}")
@@ -334,7 +334,254 @@ if "Risk Prediction" in page:
                 st.success("✓ Low Risk. Continue annual screening and healthy lifestyle maintenance.")
 
 # ══════════════════════════════════════════════════════════
-# PAGE 2 — MODEL DASHBOARD
+# PAGE 2 — PATIENT RETENTION PREDICTION
+# ══════════════════════════════════════════════════════════
+
+elif "Patient Retention" in page:
+    st.title("🏥 Patient Retention Prediction")
+    st.caption("Identify patients who are likely to drop out after their first clinic visit — so you can intervene before it happens.")
+
+    st.markdown("""
+    Rehabilitation clinics lose many patients after the first visit due to factors like
+    long waiting times, difficult exercises, distance, and lack of perceived improvement.
+    This model predicts dropout risk using those operational and behavioural factors,
+    allowing clinicians to proactively reach out to at-risk patients.
+    """)
+
+    st.divider()
+
+    # ── Input form ────────────────────────────────────────
+    st.subheader("Patient Visit Factors")
+    st.caption("Fill in the details for this patient's clinic visit.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Clinical Experience Factors**")
+
+        exercise_diff = st.select_slider(
+            "How difficult was the prescribed exercise program?",
+            options=[1, 2, 3, 4, 5],
+            value=3,
+            format_func=lambda x: {1:"1 — Very Easy", 2:"2 — Easy", 3:"3 — Moderate", 4:"4 — Hard", 5:"5 — Very Hard"}[x]
+        )
+
+        perceived_imp = st.select_slider(
+            "How much improvement did the patient feel?",
+            options=[1, 2, 3, 4, 5],
+            value=3,
+            format_func=lambda x: {1:"1 — No improvement", 2:"2 — Slight", 3:"3 — Moderate", 4:"4 — Good", 5:"5 — Significant"}[x]
+        )
+
+        q_burden = st.slider(
+            "Number of forms/questionnaires given to patient (1–10)",
+            min_value=1, max_value=10, value=5,
+            help="Higher questionnaire burden increases dropout risk"
+        )
+
+        missed_appt = st.selectbox(
+            "Has the patient missed any appointment in the last 3 months?",
+            [0, 1],
+            format_func=lambda x: "No" if x == 0 else "Yes — missed at least one"
+        )
+
+    with col2:
+        st.markdown("**Logistical Factors**")
+
+        waiting_time = st.slider(
+            "Average waiting time at clinic (minutes)",
+            min_value=5, max_value=90, value=20,
+            help="Longer waiting times significantly increase dropout"
+        )
+
+        travel_dist = st.slider(
+            "Distance from patient's home to clinic (km)",
+            min_value=1, max_value=80, value=15,
+            help="Longer travel distances increase dropout risk"
+        )
+
+        has_insurance = st.selectbox(
+            "Does the patient have health insurance?",
+            [0, 1],
+            format_func=lambda x: "No — paying out of pocket" if x == 0 else "Yes — insured"
+        )
+
+        prev_visits = st.slider(
+            "Number of previous clinic visits",
+            min_value=0, max_value=20, value=1,
+            help="Patients with more prior visits tend to be more committed"
+        )
+
+        age_group = st.selectbox(
+            "Patient age group",
+            [0, 1, 2, 3],
+            format_func=lambda x: ["18–30 years", "31–45 years", "46–60 years", "61+ years"][x],
+            index=2
+        )
+
+        visit_reason = st.selectbox(
+            "Primary reason for visiting",
+            [0, 1, 2, 3, 4],
+            format_func=lambda x: ["Cardiac Rehabilitation", "Hypertension Management",
+                                    "Diabetes Care", "Weight Management", "General Checkup"][x]
+        )
+
+    st.divider()
+
+    if st.button("🔍 Predict Retention Risk", type="primary", use_container_width=True):
+
+        ret_model  = models.get("retention_rf")
+        scaler_ret = models.get("scaler_ret")
+
+        if ret_model is None or scaler_ret is None:
+            st.error("Retention model not loaded. Run 01_preprocessing.py and 03_model_training.py first, then restart the app.")
+        else:
+            try:
+                ret_features = pd.DataFrame([{
+                    "exercise_difficulty":   exercise_diff,
+                    "questionnaire_burden":  q_burden,
+                    "waiting_time_minutes":  waiting_time,
+                    "travel_distance_km":    travel_dist,
+                    "previous_visits":       prev_visits,
+                    "missed_appointment":    missed_appt,
+                    "has_insurance":         has_insurance,
+                    "perceived_improvement": perceived_imp,
+                    "age_group_encoded":     age_group,
+                    "visit_reason_encoded":  visit_reason,
+                }])
+
+                ret_scaled   = scaler_ret.transform(ret_features)
+                dropout_prob = ret_model.predict_proba(ret_scaled)[0][0]
+                retain_prob  = 1 - dropout_prob
+
+                # ── Results ───────────────────────────────────────
+                st.markdown("---")
+                st.subheader("Retention Risk Assessment")
+
+                m1, m2, m3 = st.columns(3)
+                with m1: st.metric("Dropout Probability",  f"{dropout_prob * 100:.1f}%")
+                with m2: st.metric("Retention Probability", f"{retain_prob  * 100:.1f}%")
+                with m3:
+                    if dropout_prob >= 0.60:   risk_label = "HIGH DROPOUT RISK"
+                    elif dropout_prob >= 0.35:  risk_label = "MODERATE RISK"
+                    else:                       risk_label = "LIKELY TO RETURN"
+                    st.metric("Status", risk_label)
+
+                # Risk banner
+                if dropout_prob >= 0.60:
+                    st.error(f"⚠ HIGH DROPOUT RISK — {dropout_prob*100:.1f}% probability this patient will not return. Immediate action recommended.")
+                elif dropout_prob >= 0.35:
+                    st.warning(f"⚠ MODERATE DROPOUT RISK — {dropout_prob*100:.1f}% dropout probability. Monitor and consider outreach.")
+                else:
+                    st.success(f"✓ LOW DROPOUT RISK — {dropout_prob*100:.1f}% dropout probability. Patient likely to continue treatment.")
+
+                # ── Risk factor breakdown ─────────────────────────
+                st.subheader("Key Risk Factors for This Patient")
+                st.caption("Factors that are contributing most to dropout risk for this specific patient.")
+
+                risk_factors = []
+                protective   = []
+
+                if exercise_diff >= 4:
+                    risk_factors.append(f"Exercise difficulty rated {exercise_diff}/5 — very high, patient may feel overwhelmed")
+                if waiting_time > 30:
+                    risk_factors.append(f"Waiting time of {waiting_time} minutes — above the 30-minute dropout threshold")
+                if travel_dist > 20:
+                    risk_factors.append(f"Travel distance of {travel_dist} km — long commute is a major dropout driver")
+                if q_burden >= 7:
+                    risk_factors.append(f"Questionnaire burden of {q_burden}/10 — excessive paperwork frustrates patients")
+                if missed_appt == 1:
+                    risk_factors.append("Previous missed appointment — strong predictor of future dropout")
+                if has_insurance == 0:
+                    risk_factors.append("No insurance — financial pressure increases dropout likelihood")
+                if perceived_imp <= 2:
+                    risk_factors.append(f"Perceived improvement rated {perceived_imp}/5 — patient does not feel they are getting better")
+
+                if exercise_diff <= 2:
+                    protective.append(f"Exercise difficulty rated {exercise_diff}/5 — manageable program")
+                if perceived_imp >= 4:
+                    protective.append(f"Perceived improvement rated {perceived_imp}/5 — patient feels positive progress")
+                if has_insurance == 1:
+                    protective.append("Has insurance — financial barrier removed")
+                if travel_dist <= 10:
+                    protective.append(f"Close to clinic ({travel_dist} km) — convenient access")
+                if waiting_time <= 15:
+                    protective.append(f"Short waiting time ({waiting_time} min) — efficient service experience")
+                if prev_visits >= 5:
+                    protective.append(f"{prev_visits} previous visits — established patient relationship")
+
+                rf1, rf2 = st.columns(2)
+                with rf1:
+                    st.markdown("**Dropout Risk Factors**")
+                    if risk_factors:
+                        for r in risk_factors:
+                            st.error(f"↑ {r}")
+                    else:
+                        st.success("No major risk factors identified")
+
+                with rf2:
+                    st.markdown("**Protective Factors**")
+                    if protective:
+                        for p in protective:
+                            st.success(f"↓ {p}")
+                    else:
+                        st.info("No strong protective factors identified")
+
+                # ── Recommended actions ───────────────────────────
+                st.subheader("Recommended Clinical Actions")
+
+                if dropout_prob >= 0.60:
+                    st.error("**Immediate actions required:**")
+                    actions = []
+                    if exercise_diff >= 4:
+                        actions.append("Reduce exercise intensity — redesign program to difficulty level 2–3")
+                    if waiting_time > 30:
+                        actions.append("Schedule this patient for early morning or off-peak slots to reduce waiting time")
+                    if travel_dist > 20:
+                        actions.append("Explore teleconsultation or home visit options to reduce travel burden")
+                    if q_burden >= 7:
+                        actions.append("Reduce questionnaire load — limit to essential forms only for next visit")
+                    if perceived_imp <= 2:
+                        actions.append("Schedule motivational counselling session — explain treatment progress clearly")
+                    if has_insurance == 0:
+                        actions.append("Connect patient with hospital social worker — explore payment plans or subsidies")
+                    actions.append("Send SMS or phone reminder 48 hours before next appointment")
+                    actions.append("Assign a dedicated care coordinator to follow up with this patient")
+                    for a in actions:
+                        st.write(f"  • {a}")
+
+                elif dropout_prob >= 0.35:
+                    st.warning("**Preventive actions recommended:**")
+                    st.write("  • Send appointment reminder SMS 48 hours before next visit")
+                    st.write("  • Check in with patient at end of next visit — ask about concerns")
+                    if exercise_diff >= 3:
+                        st.write("  • Review exercise program difficulty with physiotherapist")
+                    st.write("  • Consider scheduling follow-up call one week after next visit")
+
+                else:
+                    st.success("**Maintain standard care:**")
+                    st.write("  • Continue current treatment plan")
+                    st.write("  • Standard appointment reminders are sufficient")
+                    st.write("  • Reassess retention risk at next visit if circumstances change")
+
+                # ── Population context ────────────────────────────
+                st.divider()
+                st.subheader("Population Context")
+                st.caption("How this patient compares to the training dataset.")
+
+                pc1, pc2, pc3 = st.columns(3)
+                with pc1: st.metric("Average Dropout Rate", "21%", help="In the synthetic training dataset")
+                with pc2: st.metric("This Patient's Risk",  f"{dropout_prob*100:.1f}%")
+                with pc3:
+                    diff = dropout_prob * 100 - 21
+                    st.metric("vs Population Average", f"{diff:+.1f}%",
+                              delta_color="inverse")
+
+            except Exception as e:
+                st.error(f"Prediction error: {e}")
+
+# ══════════════════════════════════════════════════════════
+# PAGE 3 — MODEL DASHBOARD
 # ══════════════════════════════════════════════════════════
 
 elif "Model Dashboard" in page:
