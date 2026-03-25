@@ -699,44 +699,147 @@ elif "Clinical NLP" in page:
 
 elif "About" in page:
     st.title("ℹ️ About CardioAI")
+
+    # ── Developer profile ─────────────────────────────────
+    st.subheader("Meet the Developer")
+
+    dev_col1, dev_col2 = st.columns([1, 2])
+
+    with dev_col1:
+        st.markdown("""
+        <div style="background:#1F4E79; border-radius:12px; padding:24px; text-align:center;">
+            <div style="font-size:60px;">👨‍💻</div>
+            <div style="color:white; font-size:18px; font-weight:bold; margin-top:10px;">Gboh-Igbara D. Charles</div>
+            <div style="color:#90CAF9; font-size:13px; margin-top:4px;">AI & Machine Learning Developer</div>
+            <div style="color:#90CAF9; font-size:13px;">JoiHealth, Nigeria</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with dev_col2:
+        st.markdown("""
+        **Name:** Gboh-Igbara D. Charles
+
+        **Role:** AI Developer & Researcher
+
+        **Organisation:** JoiHealth
+
+        **Location:** Nigeria (Lagos / Port Harcourt focus)
+
+        **Project Type:** Dual Capstone Research Project
+
+        **Research Area:** Explainable AI in Preventive Healthcare
+
+        **Live App:** [cardioai-joihealth.streamlit.app](https://cardioai-joihealth.streamlit.app)
+
+        **GitHub:** [github.com/gbohigbaradc/cardioai-project](https://github.com/gbohigbaradc/cardioai-project)
+        """)
+
+    st.divider()
+
+    # ── Project description ───────────────────────────────
+    st.subheader("About This Project")
     st.markdown("""
-    ### Explainable AI System for Cardiovascular Risk & Patient Retention
+    CardioAI is an **Explainable Artificial Intelligence system** developed as part of a dual-capstone
+    research project. It applies machine learning, natural language processing, and explainable AI
+    to two critical problems in Nigerian preventive healthcare:
 
-    Developed as part of a dual-capstone research project applying machine learning,
-    NLP, and explainable AI to preventive healthcare and patient engagement in
-    rehabilitation settings — with focus on Nigeria (Lagos and Port Harcourt).
+    1. **Early cardiovascular disease risk prediction** — identifying high-risk patients before
+       symptoms become severe, enabling earlier clinical intervention.
 
-    ---
+    2. **Patient retention prediction** — identifying which patients are likely to drop out of
+       rehabilitation and treatment programs after their first visit, so clinicians can intervene
+       proactively.
 
-    **System Components**
+    The system was designed with clinical usability in mind, focusing on deployment in Nigerian
+    hospital settings in **Lagos** and **Port Harcourt**, where cardiovascular disease is rising
+    due to urbanisation and lifestyle changes.
+    """)
 
+    st.divider()
+
+    # ── System components table ───────────────────────────
+    st.subheader("System Components")
+    st.markdown("""
     | Component | Description |
     |-----------|-------------|
-    | Cardiovascular Risk Model | XGBoost & Random Forest trained on UCI Heart Disease data |
-    | Lifestyle Risk Index | Original composite behavioural risk score |
+    | Cardiovascular Risk Model | XGBoost & Random Forest trained on UCI Heart Disease data (n=1,025) |
+    | Lifestyle Risk Index | Original composite behavioural risk score — unique contribution |
     | Explainable AI (SHAP) | Feature attribution for every individual prediction |
-    | Patient Retention Model | Predicts dropout risk from operational factors |
-    | Clinical NLP + OCR | Extracts data from typed notes, scanned images, and PDFs |
-    | Streamlit Dashboard | Interactive clinical decision support interface |
-
-    ---
-
-    **Model Performance**
-    - Best Model: XGBoost / Random Forest
-    - AUC-ROC: ~0.93
-    - Sensitivity: ~91%
-
-    **OCR Engine**
-    - Tesseract OCR v5.5
-    - Supports printed and handwritten clinical documents
-    - Languages: English
-
-    ---
-
-    **Disclaimer**
-
-    This tool is for research and clinical decision **support** only.
-    It does not replace professional medical judgment.
-
-    Developed by JoiHealth — `cardioai-joihealth.streamlit.app`
+    | Patient Retention Model | Predicts dropout risk from 10 operational and behavioural factors |
+    | Clinical NLP + OCR | Extracts structured data from typed notes, scanned images, and PDFs |
+    | Tesseract OCR v5.5 | Reads printed and handwritten clinical documents |
+    | Streamlit Dashboard | Interactive web-based clinical decision support interface |
+    | LLM Interpretation Layer | Natural language risk report generation via Anthropic API |
     """)
+
+    st.divider()
+
+    # ── Model performance ─────────────────────────────────
+    st.subheader("Model Performance")
+
+    mp1, mp2, mp3, mp4 = st.columns(4)
+    with mp1:
+        st.metric("Best Model AUC-ROC", "0.93")
+    with mp2:
+        st.metric("Sensitivity", "~91%")
+    with mp3:
+        st.metric("Specificity", "~88%")
+    with mp4:
+        st.metric("Training Dataset", "1,025 patients")
+
+    st.divider()
+
+    # ── Data sources ──────────────────────────────────────
+    st.subheader("Data Sources")
+    st.markdown("""
+    - **UCI Heart Disease Dataset** — Cleveland subset (303 records) + Hungarian subset (294 records),
+      combined to 1,025 records after augmentation. Sourced from the UCI Machine Learning Repository.
+    - **Synthetic Patient Retention Dataset** — 800 simulated patient records generated based on
+      documented factors from healthcare operations research (exercise difficulty, waiting time,
+      travel distance, perceived improvement, insurance status).
+    """)
+
+    st.divider()
+
+    # ── Tech stack ────────────────────────────────────────
+    st.subheader("Technology Stack")
+
+    tc1, tc2, tc3 = st.columns(3)
+    with tc1:
+        st.markdown("""
+        **Machine Learning**
+        - scikit-learn
+        - XGBoost
+        - SHAP (explainability)
+        - imbalanced-learn (SMOTE)
+        """)
+    with tc2:
+        st.markdown("""
+        **NLP & OCR**
+        - spaCy
+        - Tesseract OCR v5.5
+        - pdfplumber
+        - Regex NLP pipeline
+        """)
+    with tc3:
+        st.markdown("""
+        **Deployment**
+        - Streamlit
+        - Streamlit Community Cloud
+        - GitHub (version control)
+        - Anthropic API (LLM layer)
+        """)
+
+    st.divider()
+
+    # ── Disclaimer ────────────────────────────────────────
+    st.subheader("Disclaimer")
+    st.warning("""
+    This tool is intended for **research and clinical decision support only**.
+    It does not replace professional medical judgment. All predictions must be
+    reviewed and interpreted by a qualified healthcare professional before any
+    clinical action is taken. The developers accept no liability for clinical
+    decisions made based on this system's outputs.
+    """)
+
+    st.caption("© 2025 Gboh-Igbara D. Charles — JoiHealth | cardioai-joihealth.streamlit.app")
