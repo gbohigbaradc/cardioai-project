@@ -20,6 +20,7 @@ seaborn>=0.12.0         # Statistical visualisations
 joblib>=1.3.0           # Saving and loading trained models
 shap>=0.44.0            # SHAP explainability
 streamlit>=1.28.0       # Web dashboard
+pdfplumber
 
 
 # ── OPTIONAL (install for full functionality) ────────────────────────────
