@@ -121,32 +121,134 @@ def build_features(age, sex, cp, trestbps, chol, fbs, restecg, thalach,
 
 def run_ocr(img):
     import pytesseract
-    from PIL import ImageFilter, ImageEnhance, Image
-    g = img.convert("L")
-    g = ImageEnhance.Contrast(g).enhance(2.0)
-    g = g.filter(ImageFilter.SHARPEN)
-    w, h = g.size
-    if w < 1500:
-        g = g.resize((int(w * 1500 / w), int(h * 1500 / w)), Image.LANCZOS)
-    return pytesseract.image_to_string(g, config="--oem 3 --psm 6 -l eng").strip()
+    from PIL import ImageFilter, ImageEnhance, Image, ImageOps
+
+    results = []
+
+    # Attempt 1: High-contrast grayscale upscaled to 2400px wide
+    try:
+        g = img.convert("L")
+        g = ImageEnhance.Contrast(g).enhance(2.5)
+        g = ImageEnhance.Sharpness(g).enhance(2.0)
+        g = g.filter(ImageFilter.SHARPEN)
+        w, h = g.size
+        scale = max(1.0, 2400 / w)
+        g = g.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        t1 = pytesseract.image_to_string(g, config="--oem 3 --psm 6 -l eng")
+        results.append(t1)
+    except Exception:
+        pass
+
+    # Attempt 2: Binarised black-and-white threshold
+    try:
+        g2 = img.convert("L")
+        g2 = ImageOps.autocontrast(g2)
+        g2 = g2.point(lambda x: 0 if x < 140 else 255, "1").convert("L")
+        w2, h2 = g2.size
+        scale2 = max(1.0, 2400 / w2)
+        g2 = g2.resize((int(w2 * scale2), int(h2 * scale2)), Image.LANCZOS)
+        t2 = pytesseract.image_to_string(g2, config="--oem 3 --psm 6 -l eng")
+        results.append(t2)
+    except Exception:
+        pass
+
+    # Pick the result with the most words
+    best = max(results, key=lambda t: len(t.split())) if results else ""
+
+    # Fix common OCR misreadings of clinical handwriting
+    corrections = [
+        (r"\bB[\.\-]P[\.\b]?", "BP"),
+        (r"\b[Rr][Pp]\b", "BP"),
+        (r"\bP[\.\-]R\.?\b", "PR"),
+        (r"mm\s*[Hh][Gg]", "mmHg"),
+        (r"mmflg|mntlg|mmttg|mmttg", "mmHg"),
+        (r"hypertens\w*", "hypertension"),
+        (r"dyslipid\w*", "dyslipidemia"),
+        (r"diabet\w*", "diabetes"),
+        (r"obes\w*", "obesity"),
+        (r"palpit\w*", "palpitations"),
+        (r"vertig\w*", "vertigo"),
+    ]
+    for pattern, replacement in corrections:
+        best = re.sub(pattern, replacement, best, flags=re.IGNORECASE)
+
+    return best.strip()
+
 
 def extract_entities(text):
     e = {}
-    bp = re.findall(r"(?<!\d)(1\d{2}|2[0-4]\d|9\d)\/((?:[5-9]\d)|(?:1[0-2]\d))(?!\d)(?:\s*mmHg)?", text)
-    e["bp"] = [{"sys": int(s), "dia": int(d), "hyp": int(s)>=140 or int(d)>=90} for s, d in bp]
-    e["hr"] = [int(v) for v in re.findall(r"(?:Heart Rate|HR|Pulse)[:\s]+(\d{2,3})\s*(?:bpm)?", text, re.IGNORECASE)]
-    e["temp"] = [float(v) for v in re.findall(r"(?:Temp|Temperature)[:\s]+([\d.]+)\s*°?C", text, re.IGNORECASE)]
-    e["weight"] = [float(v) for v in re.findall(r"(?:Weight|Wt)[:\s]+([\d.]+)\s*kg", text, re.IGNORECASE)]
-    meds = re.findall(r"([A-Z][a-z]{3,}-?[a-z]*)\s+(\d+(?:\.\d+)?(?:mg|mcg|g|ml|IU))", text)
+
+    # Blood Pressure — handles BP- 109/73, BP: 109/73 mmHg, BP 109/73
+    bp = re.findall(
+        r"(?:BP|[Bb]lood\s*[Pp]ressure|B\.P\.?)[\s:=\-\u2013]+\s*"
+        r"(\d{2,3})[\s]*/[\s]*(\d{2,3})\s*(?:mmHg)?",
+        text, re.IGNORECASE
+    )
+    # Fallback: plain number/number in physiological range
+    if not bp:
+        bp = re.findall(r"(?<![.\d])([89]\d|1\d{2}|2[0-4]\d)/([4-9]\d|1[0-2]\d)(?![.\d])", text)
+    e["bp"] = [{"sys": int(s), "dia": int(d), "hyp": int(s)>=140 or int(d)>=90}
+               for s, d in bp if 70 <= int(s) <= 250 and 40 <= int(d) <= 130]
+
+    # Heart Rate / Pulse Rate — PR 69b/m counts as heart rate
+    hr = re.findall(
+        r"(?:Heart\s*Rate|HR|Pulse(?:\s*Rate)?|PR)[\s:=\-\u2013]+\s*(\d{2,3})\s*(?:b?pm|b/m|/m|/min)?",
+        text, re.IGNORECASE)
+    e["hr"] = [int(v) for v in hr if 30 <= int(v) <= 220]
+
+    # Temperature
+    e["temp"] = [float(v) for v in re.findall(
+        r"(?:Temp|Temperature)[\s:=\-]+\s*([34]\d(?:\.\d)?)\s*°?C", text, re.IGNORECASE)]
+
+    # Weight
+    e["weight"] = [float(v) for v in re.findall(
+        r"(?:Weight|Wt)[\s:=\-]+\s*(\d{2,3}(?:\.\d)?)\s*[Kk]g", text, re.IGNORECASE)]
+
+    # Height
+    e["height"] = [float(v) for v in re.findall(
+        r"(?:Height|Ht)[\s:=\-]+\s*(\d{2,3}(?:\.\d)?)\s*cm", text, re.IGNORECASE)]
+
+    # BMI
+    e["bmi"] = [float(v) for v in re.findall(
+        r"BMI[\s:=\-]+\s*(\d{2}(?:\.\d{1,2})?)", text, re.IGNORECASE)]
+
+    # SPO2 / Oxygen saturation
+    spo2 = re.findall(
+        r"(?:SPO2?|O2\s*sat|Oxygen\s*sat)[\s:=\->\u2192]+\s*(\d{2,3})\s*%?",
+        text, re.IGNORECASE)
+    e["spo2"] = [int(v) for v in spo2 if 50 <= int(v) <= 100]
+
+    # Medications
+    meds = re.findall(r"([A-Z][a-z]{3,}(?:-?[a-z]+)?)\s+(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|IU|units?))", text)
     e["meds"] = [f"{m} {d}" for m, d in meds if len(m) > 4]
-    dx_list = ["hypertension","diabetes","coronary artery disease","heart failure",
-               "angina","arrhythmia","stroke","myocardial infarction","atrial fibrillation","obesity"]
-    e["dx"] = [k.title() for k in dx_list if k in text.lower()]
+
+    # Diagnoses — broad patterns covering Nigerian clinical note phrasing
+    dx_patterns = [
+        (r"hypertens", "Hypertension"),
+        (r"dyslipid|hyperlipid|hypercholesterol", "Dyslipidemia"),
+        (r"diabet", "Diabetes"),
+        (r"coronary artery|CAD", "Coronary Artery Disease"),
+        (r"heart failure|cardiac failure", "Heart Failure"),
+        (r"angina", "Angina"),
+        (r"arrhythmia|dysrhythmia", "Arrhythmia"),
+        (r"stroke|CVA\b", "Stroke"),
+        (r"myocardial infarction|heart attack", "Myocardial Infarction"),
+        (r"atrial fibrillation|AFib|AF\b", "Atrial Fibrillation"),
+        (r"obes", "Obesity"),
+        (r"knee pain|arthralgia|arthritis", "Joint Pain / Arthralgia"),
+        (r"palpitation", "Palpitations"),
+        (r"vertigo|dizziness", "Vertigo / Dizziness"),
+    ]
+    e["dx"] = [label for pattern, label in dx_patterns
+               if re.search(pattern, text, re.IGNORECASE)]
+
+    # Lifestyle
     e["smoking"]   = bool(re.search(r"smok|cigarette|tobacco", text, re.IGNORECASE))
-    e["sedentary"] = bool(re.search(r"sedentary|no exercise|inactive", text, re.IGNORECASE))
-    e["active"]    = bool(re.search(r"regular exercise|active|gym|jogging", text, re.IGNORECASE))
-    e["alcohol"]   = bool(re.search(r"alcohol|drinking", text, re.IGNORECASE))
+    e["sedentary"] = bool(re.search(r"sedentary|no exercise|inactive|retired", text, re.IGNORECASE))
+    e["active"]    = bool(re.search(r"regular exercise|active|gym|jogging|walking", text, re.IGNORECASE))
+    e["alcohol"]   = bool(re.search(r"alcohol|drinking|ethanol", text, re.IGNORECASE))
     e["poor_diet"] = bool(re.search(r"high sodium|poor diet|unhealthy|fast food", text, re.IGNORECASE))
+
     return e
 
 def show_entities(e):
@@ -174,6 +276,18 @@ def show_entities(e):
             st.success(f"Temperature: {e['temp'][0]} °C")
         if e["weight"]:
             st.success(f"Weight: {e['weight'][0]} kg")
+        if e.get("height"):
+            st.success(f"Height: {e['height'][0]} cm")
+        if e.get("bmi"):
+            bmi_val = e['bmi'][0]
+            bmi_cat = "Underweight" if bmi_val < 18.5 else "Normal" if bmi_val < 25 else "Overweight" if bmi_val < 30 else "Obese"
+            st.warning(f"BMI: {bmi_val} kg/m² — {bmi_cat}") if bmi_val >= 30 else st.success(f"BMI: {bmi_val} kg/m² — {bmi_cat}")
+        if e.get("spo2"):
+            spo2_val = e['spo2'][0]
+            if spo2_val >= 95:
+                st.success(f"SPO2: {spo2_val}% — Normal oxygenation")
+            else:
+                st.error(f"SPO2: {spo2_val}% — LOW — check respiratory status")
 
     with c2:
         st.markdown("**Diagnoses**")
