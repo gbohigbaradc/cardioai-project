@@ -120,60 +120,146 @@ def build_features(age, sex, cp, trestbps, chol, fbs, restecg, thalach,
     }])
 
 def run_ocr(img):
+    """
+    OpenCV-powered OCR pipeline for handwritten Nigerian clinical notes.
+    Runs 4 preprocessing strategies and picks the best result.
+    Falls back to PIL-only if OpenCV is unavailable.
+    """
     import pytesseract
     from PIL import ImageFilter, ImageEnhance, Image, ImageOps
+    import numpy as np
 
     results = []
 
-    # Attempt 1: High-contrast grayscale upscaled to 2400px wide
+    # ── Convert PIL image to numpy array for OpenCV processing ──────────
+    img_np = np.array(img.convert("RGB"))
+
+    # ── STRATEGY 1: OpenCV Adaptive Thresholding (best for handwriting) ──
+    # This is the KEY fix — adaptive threshold handles uneven lighting,
+    # bleed-through, and shadow that destroys simple contrast enhancement.
     try:
-        g = img.convert("L")
-        g = ImageEnhance.Contrast(g).enhance(2.5)
-        g = ImageEnhance.Sharpness(g).enhance(2.0)
-        g = g.filter(ImageFilter.SHARPEN)
-        w, h = g.size
+        import cv2
+        gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        # Upscale to 2400px wide — OCR needs minimum 300 DPI equivalent
+        h, w = gray.shape
         scale = max(1.0, 2400 / w)
-        g = g.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-        t1 = pytesseract.image_to_string(g, config="--oem 3 --psm 6 -l eng")
-        results.append(t1)
+        gray = cv2.resize(gray, (int(w * scale), int(h * scale)),
+                          interpolation=cv2.INTER_LANCZOS4)
+        # Adaptive threshold: each region is binarised relative to its
+        # local neighbourhood — handles uneven lighting perfectly
+        binary = cv2.adaptiveThreshold(
+            gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            blockSize=31,  # neighbourhood size — larger = more tolerance
+            C=10           # constant subtracted from mean
+        )
+        # Denoise: remove salt-and-pepper noise from paper texture
+        denoised = cv2.fastNlMeansDenoising(binary, h=10)
+        # Morphological dilation slightly thickens thin handwriting strokes
+        kernel = np.ones((1, 1), np.uint8)
+        processed = cv2.dilate(denoised, kernel, iterations=1)
+        pil_cv1 = Image.fromarray(processed)
+        t1 = pytesseract.image_to_string(
+            pil_cv1, config="--oem 3 --psm 6 -l eng")
+        if t1.strip():
+            results.append(("opencv_adaptive", t1))
+    except ImportError:
+        pass  # OpenCV not available, continue to PIL fallbacks
     except Exception:
         pass
 
-    # Attempt 2: Binarised black-and-white threshold
+    # ── STRATEGY 2: OpenCV Otsu Thresholding ────────────────────────────
+    # Otsu automatically finds the optimal global threshold value
     try:
-        g2 = img.convert("L")
-        g2 = ImageOps.autocontrast(g2)
-        g2 = g2.point(lambda x: 0 if x < 140 else 255, "1").convert("L")
-        w2, h2 = g2.size
+        import cv2
+        gray2 = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        h2, w2 = gray2.shape
         scale2 = max(1.0, 2400 / w2)
-        g2 = g2.resize((int(w2 * scale2), int(h2 * scale2)), Image.LANCZOS)
-        t2 = pytesseract.image_to_string(g2, config="--oem 3 --psm 6 -l eng")
-        results.append(t2)
+        gray2 = cv2.resize(gray2, (int(w2 * scale2), int(h2 * scale2)),
+                           interpolation=cv2.INTER_LANCZOS4)
+        # Gaussian blur before Otsu reduces noise
+        blurred = cv2.GaussianBlur(gray2, (3, 3), 0)
+        _, otsu = cv2.threshold(
+            blurred, 0, 255,
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        pil_cv2 = Image.fromarray(otsu)
+        t2 = pytesseract.image_to_string(
+            pil_cv2, config="--oem 3 --psm 6 -l eng")
+        if t2.strip():
+            results.append(("opencv_otsu", t2))
     except Exception:
         pass
 
-    # Pick the result with the most words
-    best = max(results, key=lambda t: len(t.split())) if results else ""
+    # ── STRATEGY 3: PIL High-Contrast (fallback if no OpenCV) ───────────
+    try:
+        g3 = img.convert("L")
+        g3 = ImageEnhance.Contrast(g3).enhance(3.0)
+        g3 = ImageEnhance.Sharpness(g3).enhance(2.5)
+        g3 = g3.filter(ImageFilter.SHARPEN)
+        w3, h3 = g3.size
+        scale3 = max(1.0, 2400 / w3)
+        g3 = g3.resize((int(w3 * scale3), int(h3 * scale3)), Image.LANCZOS)
+        t3 = pytesseract.image_to_string(
+            g3, config="--oem 3 --psm 6 -l eng")
+        if t3.strip():
+            results.append(("pil_contrast", t3))
+    except Exception:
+        pass
 
-    # Fix common OCR misreadings of clinical handwriting
+    # ── STRATEGY 4: PIL Hard Binarisation ───────────────────────────────
+    try:
+        g4 = img.convert("L")
+        g4 = ImageOps.autocontrast(g4)
+        g4 = g4.point(lambda x: 0 if x < 128 else 255, "1").convert("L")
+        w4, h4 = g4.size
+        scale4 = max(1.0, 2400 / w4)
+        g4 = g4.resize((int(w4 * scale4), int(h4 * scale4)), Image.LANCZOS)
+        t4 = pytesseract.image_to_string(
+            g4, config="--oem 3 --psm 6 -l eng")
+        if t4.strip():
+            results.append(("pil_binary", t4))
+    except Exception:
+        pass
+
+    # ── Pick the strategy that extracted the most words ──────────────────
+    if not results:
+        return ""
+    best_name, best = max(results, key=lambda x: len(x[1].split()))
+
+    # ── Post-processing: fix common OCR misreadings ──────────────────────
+    # These patterns fix the most common handwriting OCR errors seen in
+    # Nigerian clinical notes (e.g. "8P" for "BP", "Rp" for "BP")
     corrections = [
-        (r"\bB[\.\-]P[\.\b]?", "BP"),
-        (r"\b[Rr][Pp]\b", "BP"),
-        (r"\bP[\.\-]R\.?\b", "PR"),
-        (r"mm\s*[Hh][Gg]", "mmHg"),
-        (r"mmflg|mntlg|mmttg|mmttg", "mmHg"),
-        (r"hypertens\w*", "hypertension"),
-        (r"dyslipid\w*", "dyslipidemia"),
-        (r"diabet\w*", "diabetes"),
-        (r"obes\w*", "obesity"),
-        (r"palpit\w*", "palpitations"),
-        (r"vertig\w*", "vertigo"),
+        # Blood Pressure label variants
+        (r"8P",              "BP"),
+        (r"B\.P\.?",         "BP"),
+        (r"B-P",             "BP"),
+        (r"[Rr][Pp]",        "BP"),
+        # Pulse Rate label variants
+        (r"P\.R\.?",         "PR"),
+        (r"P-R",             "PR"),
+        # mmHg corruptions
+        (r"mm\s*[Hh][Gg]",       "mmHg"),
+        (r"mm[Ff]lg|mm[Tt]+g",   "mmHg"),
+        (r"mnHg|nnHg",           "mmHg"),
+        # Digit confusions inside numbers
+        (r"(?<=\d)[lIi](?=\d)",  "1"),
+        (r"(?<=\d)[Oo](?=\d)",   "0"),
+        # Clinical keyword recovery
+        (r"hypertens\w+",        "hypertension"),
+        (r"dyslipid\w+",         "dyslipidemia"),
+        (r"diabet\w+",           "diabetes"),
+        (r"obes\w+",             "obesity"),
+        (r"palpit\w+",           "palpitations"),
+        (r"vertig\w+",           "vertigo"),
+        (r"cholester\w+",        "cholesterol"),
+        (r"cardiac\w*",          "cardiac"),
     ]
     for pattern, replacement in corrections:
         best = re.sub(pattern, replacement, best, flags=re.IGNORECASE)
 
     return best.strip()
-
 
 def extract_entities(text):
     e = {}
