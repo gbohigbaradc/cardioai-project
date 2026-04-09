@@ -152,54 +152,92 @@ def extract_entities(text):
 def show_entities(e):
     st.subheader("Extracted Clinical Entities")
     c1, c2 = st.columns(2)
+
     with c1:
         st.markdown("**Vitals**")
         if e["bp"]:
             for b in e["bp"]:
-                msg = f"Blood Pressure: {b['sys']}/{b['dia']} mmHg — {'⚠ HYPERTENSIVE' if b['hyp'] else '✓ Normal'}"
-                st.error(msg) if b["hyp"] else st.success(msg)
+                msg = f"Blood Pressure: {b['sys']}/{b['dia']} mmHg — {'HYPERTENSIVE' if b['hyp'] else 'Normal range'}"
+                if b["hyp"]:
+                    st.error(msg)
+                else:
+                    st.success(msg)
         else:
             st.info("Blood Pressure: not found")
-        if e["hr"]:  st.success(f"Heart Rate: {', '.join(str(v) for v in e['hr'])} bpm")
-        else:        st.info("Heart Rate: not found")
-        if e["temp"]:   st.success(f"Temperature: {e['temp'][0]} °C")
-        if e["weight"]: st.success(f"Weight: {e['weight'][0]} kg")
+
+        if e["hr"]:
+            st.success(f"Heart Rate: {', '.join(str(v) for v in e['hr'])} bpm")
+        else:
+            st.info("Heart Rate: not found")
+
+        if e["temp"]:
+            st.success(f"Temperature: {e['temp'][0]} °C")
+        if e["weight"]:
+            st.success(f"Weight: {e['weight'][0]} kg")
+
     with c2:
         st.markdown("**Diagnoses**")
         if e["dx"]:
-            st.warning(f"{len(e['dx'])} diagnosis detected")
-            for d in e["dx"]: st.write(f"  • {d}")
+            st.warning(f"{len(e['dx'])} diagnosis/diagnoses detected")
+            for d in e["dx"]:
+                st.markdown(f"- {d}")
         else:
             st.info("No diagnoses detected")
+
         st.markdown("**Medications**")
         if e["meds"]:
-            st.info(f"{len(e['meds'])} medication(s)")
-            for m in e["meds"]: st.write(f"  • {m}")
+            st.info(f"{len(e['meds'])} medication(s) detected")
+            for m in e["meds"]:
+                st.markdown(f"- {m}")
         else:
             st.info("No medications detected")
 
     st.markdown("**Lifestyle Risk Flags**")
     l1, l2, l3, l4 = st.columns(4)
-    with l1: st.error("Smoking: PRESENT") if e["smoking"] else st.success("Smoking: None")
+
+    with l1:
+        if e["smoking"]:
+            st.error("Smoking: PRESENT")
+        else:
+            st.success("Smoking: None")
+
     with l2:
-        if e["sedentary"]: st.error("Activity: SEDENTARY")
-        elif e["active"]:  st.success("Activity: Active")
-        else:              st.info("Activity: Unknown")
-    with l3: st.warning("Alcohol: YES") if e["alcohol"] else st.success("Alcohol: None")
-    with l4: st.error("Diet: POOR") if e["poor_diet"] else st.info("Diet: Not assessed")
+        if e["sedentary"]:
+            st.error("Activity: SEDENTARY")
+        elif e["active"]:
+            st.success("Activity: Active")
+        else:
+            st.info("Activity: Unknown")
+
+    with l3:
+        if e["alcohol"]:
+            st.warning("Alcohol: YES")
+        else:
+            st.success("Alcohol: None")
+
+    with l4:
+        if e["poor_diet"]:
+            st.error("Diet: POOR")
+        else:
+            st.info("Diet: Not assessed")
 
     st.divider()
     st.subheader("Auto-fill Guidance for Risk Prediction")
     st.caption("Use these values when filling in the Risk Prediction form.")
     found = False
+
     if e["bp"]:
-        st.write(f"**Resting Blood Pressure:** {e['bp'][0]['sys']} mmHg"); found = True
+        st.markdown(f"**Resting Blood Pressure:** {e['bp'][0]['sys']} mmHg")
+        found = True
     if e["hr"]:
-        st.write(f"**Max Heart Rate (estimate):** {e['hr'][0]} bpm"); found = True
+        st.markdown(f"**Max Heart Rate (estimate):** {e['hr'][0]} bpm")
+        found = True
     if e["smoking"]:
-        st.write("**Exercise Angina:** Consider setting to Yes — smoker"); found = True
+        st.markdown("**Exercise Angina:** Consider setting to Yes — patient is a smoker")
+        found = True
     if any("diabetes" in d.lower() for d in e["dx"]):
-        st.write("**Fasting Blood Sugar:** Set to Yes — diabetes confirmed"); found = True
+        st.markdown("**Fasting Blood Sugar:** Set to Yes — diabetes confirmed")
+        found = True
     if not found:
         st.info("No specific values extracted. Enter patient data manually.")
 
@@ -644,8 +682,9 @@ elif "Clinical NLP" in page:
                         raw_text = run_ocr(img)
                         if raw_text.strip():
                             st.success(f"OCR complete — {len(raw_text.split())} words extracted")
-                            with st.expander("View raw OCR output"):
-                                st.text_area("Extracted text:", raw_text, height=200)
+                            with st.expander("View raw OCR output — verify text was read correctly"):
+                                st.text_area("Extracted text from image:", raw_text, height=250)
+                            st.info("OCR text extracted. Click Extract Clinical Entities below to run NLP analysis.")
                         else:
                             st.warning("OCR found no text. Try a clearer image or paste manually.")
                             raw_text = st.text_area("Paste text manually:", height=200)
