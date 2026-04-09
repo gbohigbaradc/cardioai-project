@@ -33,3 +33,4 @@ Pillow>=10.0.0          # Image handling for OCR
 pdf2image>=1.16.0       # PDF to image conversion for OCR
 anthropic>=0.8.0        # Claude LLM explanations (fallback: rule-based)
 openai>=1.3.0           # GPT-4 LLM explanations (fallback: rule-based)
+opencv-python-headless
