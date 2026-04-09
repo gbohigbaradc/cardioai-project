@@ -3,3 +3,4 @@ tesseract-ocr-eng
 libgl1
 libsm6
 libxext6
+libxrender-dev
