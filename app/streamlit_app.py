@@ -262,73 +262,104 @@ def run_ocr(img):
     return best.strip()
 
 def extract_entities(text):
+    """
+    Flexible NLP extractor handling both clean typed text and
+    OCR-corrected handwritten clinical notes.
+    Covers Nigerian clinical note conventions: BP-, PR, SPO2, etc.
+    """
     e = {}
 
-    # Blood Pressure — handles BP- 109/73, BP: 109/73 mmHg, BP 109/73
+    # ── Blood Pressure ─────────────────────────────────────────────────
+    # Handles: BP: 109/73, BP- 109/73 mmHg, BP 109/73, 109/73 mmHg
     bp = re.findall(
         r"(?:BP|[Bb]lood\s*[Pp]ressure|B\.P\.?)[\s:=\-\u2013]+\s*"
-        r"(\d{2,3})[\s]*/[\s]*(\d{2,3})\s*(?:mmHg)?",
-        text, re.IGNORECASE
-    )
-    # Fallback: plain number/number in physiological range
+        r"(\d{2,3})\s*/\s*(\d{2,3})\s*(?:mmHg)?",
+        text, re.IGNORECASE)
     if not bp:
-        bp = re.findall(r"(?<![.\d])([89]\d|1\d{2}|2[0-4]\d)/([4-9]\d|1[0-2]\d)(?![.\d])", text)
-    e["bp"] = [{"sys": int(s), "dia": int(d), "hyp": int(s)>=140 or int(d)>=90}
-               for s, d in bp if 70 <= int(s) <= 250 and 40 <= int(d) <= 130]
+        # Fallback: plain NNN/NN pattern in physiological range
+        bp = re.findall(
+            r"(?<![.\d])([89]\d|1\d{2}|2[0-4]\d)/([4-9]\d|1[0-2]\d)(?![.\d])",
+            text)
+    e["bp"] = [{"sys": int(s), "dia": int(d),
+                "hyp": int(s) >= 140 or int(d) >= 90}
+               for s, d in bp
+               if 70 <= int(s) <= 250 and 40 <= int(d) <= 130]
 
-    # Heart Rate / Pulse Rate — PR 69b/m counts as heart rate
+    # ── Heart Rate / Pulse Rate ────────────────────────────────────────
+    # PR 69 bpm, Heart Rate: 88, HR 72
     hr = re.findall(
-        r"(?:Heart\s*Rate|HR|Pulse(?:\s*Rate)?|PR)[\s:=\-\u2013]+\s*(\d{2,3})\s*(?:b?pm|b/m|/m|/min)?",
+        r"(?:Heart\s*Rate|HR|Pulse(?:\s*Rate)?|PR)[\s:=\-\u2013]+\s*"
+        r"(\d{2,3})\s*(?:b?pm|b/m|/m|/min)?",
         text, re.IGNORECASE)
     e["hr"] = [int(v) for v in hr if 30 <= int(v) <= 220]
 
-    # Temperature
+    # ── Temperature ────────────────────────────────────────────────────
     e["temp"] = [float(v) for v in re.findall(
-        r"(?:Temp|Temperature)[\s:=\-]+\s*([34]\d(?:\.\d)?)\s*°?C", text, re.IGNORECASE)]
+        r"(?:Temp|Temperature)[\s:=\-]+\s*([34]\d(?:\.\d)?)\s*°?C",
+        text, re.IGNORECASE)]
 
-    # Weight
-    e["weight"] = [float(v) for v in re.findall(
-        r"(?:Weight|Wt)[\s:=\-]+\s*(\d{2,3}(?:\.\d)?)\s*[Kk]g", text, re.IGNORECASE)]
+    # ── Weight ─────────────────────────────────────────────────────────
+    # With label: Weight: 104.7kg  |  Without: 104.7 kg (fallback)
+    weight = re.findall(
+        r"(?:Weight|Wt)[\s:=\-]+\s*(\d{2,3}(?:\.\d{1,2})?)\s*[Kk]g",
+        text, re.IGNORECASE)
+    if not weight:
+        weight = re.findall(r"(\d{2,3}(?:\.\d{1,2})?)\s*[Kk]g", text, re.IGNORECASE)
+    e["weight"] = [float(v) for v in weight if 20 <= float(v) <= 300]
 
-    # Height
-    e["height"] = [float(v) for v in re.findall(
-        r"(?:Height|Ht)[\s:=\-]+\s*(\d{2,3}(?:\.\d)?)\s*cm", text, re.IGNORECASE)]
+    # ── Height ─────────────────────────────────────────────────────────
+    height = re.findall(
+        r"(?:Height|Ht)[\s:=\-]+\s*(\d{2,3}(?:\.\d)?)\s*cm",
+        text, re.IGNORECASE)
+    if not height:
+        height = re.findall(r"(\d{2,3}(?:\.\d)?)\s*cm", text, re.IGNORECASE)
+    e["height"] = [float(v) for v in height if 50 <= float(v) <= 250]
 
-    # BMI
+    # ── BMI ────────────────────────────────────────────────────────────
     e["bmi"] = [float(v) for v in re.findall(
         r"BMI[\s:=\-]+\s*(\d{2}(?:\.\d{1,2})?)", text, re.IGNORECASE)]
 
-    # SPO2 / Oxygen saturation
+    # ── SPO2 / Oxygen Saturation ───────────────────────────────────────
+    # SPO2: 97%, SPO2 => 97, SPO2 97%, O2 sat 97
     spo2 = re.findall(
-        r"(?:SPO2?|O2\s*sat|Oxygen\s*sat)[\s:=\->\u2192]+\s*(\d{2,3})\s*%?",
+        r"(?:SPO2?|O2\s*sat(?:uration)?)[\s:=\->\u2192]*\s*(\d{2,3})\s*%?",
         text, re.IGNORECASE)
+    # Also catch plain "97%" if on a line with spo/oxygen context
+    if not spo2:
+        for line in text.split('\n'):
+            if re.search(r'spo|oxygen|o2', line, re.IGNORECASE):
+                pct = re.findall(r'(\d{2,3})\s*%', line)
+                spo2.extend(pct)
     e["spo2"] = [int(v) for v in spo2 if 50 <= int(v) <= 100]
 
-    # Medications
-    meds = re.findall(r"([A-Z][a-z]{3,}(?:-?[a-z]+)?)\s+(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|IU|units?))", text)
+    # ── Medications ────────────────────────────────────────────────────
+    meds = re.findall(
+        r"([A-Z][a-z]{3,}(?:-?[a-z]+)?)\s+"
+        r"(\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|IU|units?))",
+        text)
     e["meds"] = [f"{m} {d}" for m, d in meds if len(m) > 4]
 
-    # Diagnoses — broad patterns covering Nigerian clinical note phrasing
+    # ── Diagnoses — broad patterns for Nigerian clinical notes ─────────
     dx_patterns = [
-        (r"hypertens", "Hypertension"),
-        (r"dyslipid|hyperlipid|hypercholesterol", "Dyslipidemia"),
-        (r"diabet", "Diabetes"),
-        (r"coronary artery|CAD", "Coronary Artery Disease"),
-        (r"heart failure|cardiac failure", "Heart Failure"),
-        (r"angina", "Angina"),
-        (r"arrhythmia|dysrhythmia", "Arrhythmia"),
-        (r"stroke|CVA\b", "Stroke"),
-        (r"myocardial infarction|heart attack", "Myocardial Infarction"),
-        (r"atrial fibrillation|AFib|AF\b", "Atrial Fibrillation"),
-        (r"obes", "Obesity"),
-        (r"knee pain|arthralgia|arthritis", "Joint Pain / Arthralgia"),
-        (r"palpitation", "Palpitations"),
-        (r"vertigo|dizziness", "Vertigo / Dizziness"),
+        (r"hypertens",                      "Hypertension"),
+        (r"dyslipid|hyperlipid|hypercholest","Dyslipidemia"),
+        (r"diabet",                          "Diabetes"),
+        (r"coronary artery|CAD\b",           "Coronary Artery Disease"),
+        (r"heart failure|cardiac failure",   "Heart Failure"),
+        (r"\bangina\b",                      "Angina"),
+        (r"arrhythmia|dysrhythmia",          "Arrhythmia"),
+        (r"\bstroke\b|CVA\b",                "Stroke"),
+        (r"myocardial infarction|heart attack","Myocardial Infarction"),
+        (r"atrial fibrillation|AFib\b|AF\b", "Atrial Fibrillation"),
+        (r"\bobes",                          "Obesity"),
+        (r"knee pain|arthralgia|arthritis",  "Joint Pain / Arthralgia"),
+        (r"palpitat",                        "Palpitations"),
+        (r"vertigo|dizziness",               "Vertigo / Dizziness"),
     ]
     e["dx"] = [label for pattern, label in dx_patterns
                if re.search(pattern, text, re.IGNORECASE)]
 
-    # Lifestyle
+    # ── Lifestyle ──────────────────────────────────────────────────────
     e["smoking"]   = bool(re.search(r"smok|cigarette|tobacco", text, re.IGNORECASE))
     e["sedentary"] = bool(re.search(r"sedentary|no exercise|inactive|retired", text, re.IGNORECASE))
     e["active"]    = bool(re.search(r"regular exercise|active|gym|jogging|walking", text, re.IGNORECASE))
