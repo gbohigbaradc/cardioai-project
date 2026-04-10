@@ -877,23 +877,49 @@ elif "Clinical NLP" in page:
             img = Image.open(uploaded_img)
             st.image(img, caption=f"Uploaded: {uploaded_img.name}", use_container_width=True)
             if TESSERACT_OK:
-                with st.spinner("Running Tesseract OCR — reading text from image..."):
+                with st.spinner("Running OCR — reading text from image..."):
                     try:
-                        raw_text = run_ocr(img)
-                        if raw_text.strip():
-                            st.success(f"OCR complete — {len(raw_text.split())} words extracted")
-                            with st.expander("View raw OCR output — verify text was read correctly"):
-                                st.text_area("Extracted text from image:", raw_text, height=250)
-                            st.info("OCR text extracted. Click Extract Clinical Entities below to run NLP analysis.")
-                        else:
-                            st.warning("OCR found no text. Try a clearer image or paste manually.")
-                            raw_text = st.text_area("Paste text manually:", height=200)
+                        ocr_raw = run_ocr(img)
                     except Exception as e:
-                        st.error(f"OCR error: {e}")
-                        raw_text = st.text_area("Paste text manually:", height=200)
+                        ocr_raw = ""
+                        st.warning(f"OCR error: {e}")
+
+                if ocr_raw.strip():
+                    st.success(f"OCR complete — {len(ocr_raw.split())} words extracted")
+                    st.info(
+                        "**Step 2: Review and correct the OCR text below before extracting.**  \n"
+                        "Handwritten notes may have some misread words. "
+                        "Fix any errors — especially numbers like BP readings — "
+                        "then click Extract Clinical Entities."
+                    )
+                    raw_text = st.text_area(
+                        "OCR output — edit any errors before extracting:",
+                        value=ocr_raw,
+                        height=300,
+                        help="Correct any OCR mistakes here. Key values to check: BP (e.g. 109/73), "
+                             "PR/Heart Rate, Weight, Height, Diagnoses."
+                    )
+                else:
+                    st.warning(
+                        "OCR could not extract text from this image. "
+                        "This is common with very stylised handwriting. "
+                        "Please type the key values manually below."
+                    )
+                    raw_text = st.text_area(
+                        "Type or paste the clinical values manually:",
+                        height=300,
+                        placeholder="BP: 109/73 mmHg\nPR: 69 bpm\nWeight: 104.7 kg\nHeight: 160 cm\n"
+                                    "BMI: 40.6\nSPO2: 97%\nDiagnosis: Hypertension, Dyslipidemia\n"
+                                    "Obesity, Palpitations, Vertigo"
+                    )
             else:
-                st.warning("Tesseract not available. Please paste the document text manually.")
-                raw_text = st.text_area("Paste text from document:", height=200)
+                st.warning("Tesseract not available. Please enter the clinical values manually.")
+                raw_text = st.text_area(
+                    "Enter clinical values manually:",
+                    height=300,
+                    placeholder="BP: 109/73 mmHg\nPR: 69 bpm\nWeight: 104.7 kg\nHeight: 160 cm\n"
+                                "BMI: 40.6\nSPO2: 97%\nDiagnosis: Hypertension, Dyslipidemia"
+                )
 
     elif "PDF" in method:
         st.info("For typed/digital PDFs. For scanned PDFs use image upload instead.")
