@@ -65,6 +65,89 @@ def setup_tesseract():
 TESSERACT_OK, TESSERACT_MSG = setup_tesseract()
 
 # ══════════════════════════════════════════════════════════
+# CLAUDE VISION — MULTIMODAL DOCUMENT UNDERSTANDING
+# Sends the image directly to Claude claude-sonnet-4-20250514 for reading.
+# No OCR pipeline needed — Claude reads the image like a human clinician.
+# Falls back to Tesseract OCR if API key not available.
+# ══════════════════════════════════════════════════════════
+
+def extract_with_claude_vision(img):
+    """
+    Sends clinical document image directly to Claude Vision API.
+    Claude understands handwriting, layout, and clinical context.
+    Returns structured text with all clinical values extracted.
+    """
+    import base64
+    import io
+    import json
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return None, "No API key"
+
+    try:
+        import anthropic
+
+        # Convert PIL image to base64
+        buffer = io.BytesIO()
+        img_rgb = img.convert("RGB")
+        img_rgb.save(buffer, format="JPEG", quality=95)
+        img_b64 = base64.standard_b64encode(buffer.getvalue()).decode("utf-8")
+
+        client = anthropic.Anthropic(api_key=api_key)
+
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": img_b64,
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": """You are a medical data extraction assistant. 
+Look at this clinical document image carefully and extract ALL clinical values you can see.
+
+Return ONLY a plain text summary in this exact format (include only values you can actually see):
+Name: [patient name if visible]
+Age: [age if visible]
+Sex: [M/F if visible]
+BP: [systolic/diastolic mmHg - e.g. 109/73]
+PR: [pulse rate bpm - e.g. 69]
+SPO2: [oxygen saturation % - e.g. 97]
+Weight: [kg - e.g. 104.7]
+Height: [cm - e.g. 160]
+BMI: [value - e.g. 40.6]
+Temperature: [celsius if visible]
+Diagnoses: [comma separated list of all diagnoses/conditions mentioned]
+Medications: [comma separated list of medications with doses if visible]
+Smoking: [Yes/No if mentioned]
+Chief Complaint: [brief description if visible]
+
+If a value is not visible or not mentioned, skip that line entirely.
+Do not guess or infer values. Only report what is clearly written."""
+                    }
+                ]
+            }]
+        )
+
+        extracted_text = message.content[0].text
+        return extracted_text, "Claude Vision"
+
+    except ImportError:
+        return None, "anthropic library not installed"
+    except Exception as e:
+        return None, f"Claude Vision error: {str(e)}"
+
+
+# ══════════════════════════════════════════════════════════
 # MODEL LOADING
 # ══════════════════════════════════════════════════════════
 
@@ -513,8 +596,12 @@ with st.sidebar:
     st.divider()
     page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","ℹ️ About"], label_visibility="collapsed")
     st.divider()
-    if TESSERACT_OK: st.success(f"OCR: {TESSERACT_MSG}")
-    else:            st.warning(f"OCR: {TESSERACT_MSG}")
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        st.success("Claude Vision: Ready")
+    else:
+        st.warning("Claude Vision: No API key")
+    if TESSERACT_OK: st.success(f"OCR Fallback: {TESSERACT_MSG}")
+    else:            st.info("OCR Fallback: Tesseract not found")
     st.caption("⚠ Decision support only. Not a diagnostic tool.")
 
 # ══════════════════════════════════════════════════════════
@@ -934,50 +1021,72 @@ elif "Clinical NLP" in page:
             from PIL import Image
             img = Image.open(uploaded_img)
             st.image(img, caption=f"Uploaded: {uploaded_img.name}", use_container_width=True)
-            if TESSERACT_OK:
-                with st.spinner("Running OCR — reading text from image..."):
-                    try:
-                        ocr_raw = run_ocr(img)
-                    except Exception as e:
-                        ocr_raw = ""
-                        st.warning(f"OCR error: {e}")
 
-                if ocr_raw.strip():
-                    st.success(f"OCR complete — {len(ocr_raw.split())} words extracted")
-                    st.info(
-                        "**Step 2: Review and correct the OCR text below before extracting.**  \n"
-                        "Handwritten notes may have some misread words. "
-                        "Fix any errors — especially numbers like BP readings — "
-                        "then click Extract Clinical Entities."
-                    )
-                    raw_text = st.text_area(
-                        "OCR output — edit any errors before extracting:",
-                        value=ocr_raw,
-                        height=300,
-                        help="Correct any OCR mistakes here. Key values to check: BP (e.g. 109/73), "
-                             "PR/Heart Rate, Weight, Height, Diagnoses."
-                    )
+            raw_text = ""
+            extraction_method = ""
+
+            # ── PRIMARY: Claude Vision (multimodal — reads like a human) ──
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            if api_key:
+                with st.spinner("Claude Vision is reading the document — analysing handwriting and layout..."):
+                    claude_text, claude_status = extract_with_claude_vision(img)
+
+                if claude_text and claude_text.strip():
+                    st.success(f"Claude Vision extracted clinical data successfully")
+                    extraction_method = "Claude Vision (Multimodal AI)"
+                    raw_text = claude_text
+                    with st.expander("View Claude Vision extraction — verify before proceeding"):
+                        st.text_area("Claude extracted:", raw_text, height=280)
+                else:
+                    st.warning(f"Claude Vision unavailable ({claude_status}) — falling back to Tesseract OCR.")
+
+            # ── FALLBACK: Tesseract OCR (if no API key or Claude fails) ──
+            if not raw_text.strip():
+                if TESSERACT_OK:
+                    with st.spinner("Running Tesseract OCR — preprocessing image..."):
+                        try:
+                            ocr_raw = run_ocr(img)
+                        except Exception as e:
+                            ocr_raw = ""
+                            st.warning(f"OCR error: {e}")
+
+                    if ocr_raw.strip():
+                        st.info(f"Tesseract OCR extracted {len(ocr_raw.split())} words. "
+                                "Review and correct below before extracting entities.")
+                        extraction_method = "Tesseract OCR (review recommended)"
+                        raw_text = st.text_area(
+                            "OCR output — correct any errors before extracting:",
+                            value=ocr_raw, height=300,
+                            help="Fix any OCR mistakes, especially numbers like BP (e.g. 109/73)."
+                        )
+                    else:
+                        st.warning("OCR could not read this image. Please type key values manually.")
+                        extraction_method = "Manual entry"
+                        raw_text = st.text_area(
+                            "Type clinical values manually:",
+                            height=300,
+                            placeholder="BP: 109/73 mmHg\nPR: 69 bpm\nWeight: 104.7 kg\n"
+                                        "Height: 160 cm\nBMI: 40.6\nSPO2: 97%\n"
+                                        "Diagnosis: Hypertension, Dyslipidemia, Obesity"
+                        )
                 else:
                     st.warning(
-                        "OCR could not extract text from this image. "
-                        "This is common with very stylised handwriting. "
-                        "Please type the key values manually below."
+                        "Neither Claude Vision (no API key) nor Tesseract OCR is available. "
+                        "Set ANTHROPIC_API_KEY in Streamlit secrets for best results, "
+                        "or type the clinical values below."
                     )
+                    extraction_method = "Manual entry"
                     raw_text = st.text_area(
-                        "Type or paste the clinical values manually:",
+                        "Enter clinical values manually:",
                         height=300,
-                        placeholder="BP: 109/73 mmHg\nPR: 69 bpm\nWeight: 104.7 kg\nHeight: 160 cm\n"
-                                    "BMI: 40.6\nSPO2: 97%\nDiagnosis: Hypertension, Dyslipidemia\n"
-                                    "Obesity, Palpitations, Vertigo"
+                        placeholder="BP: 109/73 mmHg\nPR: 69 bpm\nWeight: 104.7 kg\n"
+                                    "Height: 160 cm\nBMI: 40.6\nSPO2: 97%\n"
+                                    "Diagnosis: Hypertension, Dyslipidemia"
                     )
-            else:
-                st.warning("Tesseract not available. Please enter the clinical values manually.")
-                raw_text = st.text_area(
-                    "Enter clinical values manually:",
-                    height=300,
-                    placeholder="BP: 109/73 mmHg\nPR: 69 bpm\nWeight: 104.7 kg\nHeight: 160 cm\n"
-                                "BMI: 40.6\nSPO2: 97%\nDiagnosis: Hypertension, Dyslipidemia"
-                )
+
+            # Show which method was used
+            if extraction_method:
+                st.caption(f"Extraction method: {extraction_method}")
 
     elif "PDF" in method:
         st.info("For typed/digital PDFs. For scanned PDFs use image upload instead.")
