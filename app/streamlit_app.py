@@ -134,38 +134,58 @@ def run_ocr(img):
     # ── Convert PIL image to numpy array for OpenCV processing ──────────
     img_np = np.array(img.convert("RGB"))
 
-    # ── STRATEGY 1: OpenCV Adaptive Thresholding (best for handwriting) ──
-    # This is the KEY fix — adaptive threshold handles uneven lighting,
-    # bleed-through, and shadow that destroys simple contrast enhancement.
+    # ── STRATEGY 1: Gemini-recommended adaptive threshold ───────────────
+    # blockSize=11 gives finer local contrast — better for handwriting detail
+    # MORPH_OPEN removes noise without thickening strokes (cleaner than dilate)
     try:
         import cv2
         gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-        # Upscale to 2400px wide — OCR needs minimum 300 DPI equivalent
         h, w = gray.shape
         scale = max(1.0, 2400 / w)
         gray = cv2.resize(gray, (int(w * scale), int(h * scale)),
                           interpolation=cv2.INTER_LANCZOS4)
-        # Adaptive threshold: each region is binarised relative to its
-        # local neighbourhood — handles uneven lighting perfectly
+        # Fine-grained adaptive threshold — turns paper texture pure white
+        # blockSize=11 recommended for handwriting (Gemini + literature)
         binary = cv2.adaptiveThreshold(
             gray, 255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
             cv2.THRESH_BINARY,
-            blockSize=31,  # neighbourhood size — larger = more tolerance
-            C=10           # constant subtracted from mean
+            blockSize=11,  # small blocks = fine detail on handwriting
+            C=2            # standard subtraction constant
         )
-        # Denoise: remove salt-and-pepper noise from paper texture
-        denoised = cv2.fastNlMeansDenoising(binary, h=10)
-        # Morphological dilation slightly thickens thin handwriting strokes
+        # MORPH_OPEN: erodes then dilates — removes tiny noise specks
+        # without merging or thickening handwriting strokes
         kernel = np.ones((1, 1), np.uint8)
-        processed = cv2.dilate(denoised, kernel, iterations=1)
-        pil_cv1 = Image.fromarray(processed)
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        pil_cv1 = Image.fromarray(cleaned)
         t1 = pytesseract.image_to_string(
             pil_cv1, config="--oem 3 --psm 6 -l eng")
         if t1.strip():
-            results.append(("opencv_adaptive", t1))
+            results.append(("opencv_adaptive_fine", t1))
     except ImportError:
-        pass  # OpenCV not available, continue to PIL fallbacks
+        pass  # OpenCV not available — PIL fallbacks below will run
+    except Exception:
+        pass
+
+    # ── STRATEGY 1B: Wider blockSize for low-contrast scans ─────────────
+    try:
+        import cv2
+        gray_b = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        h_b, w_b = gray_b.shape
+        scale_b = max(1.0, 2400 / w_b)
+        gray_b = cv2.resize(gray_b, (int(w_b * scale_b), int(h_b * scale_b)),
+                            interpolation=cv2.INTER_LANCZOS4)
+        binary_b = cv2.adaptiveThreshold(
+            gray_b, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            blockSize=31, C=10)
+        kernel_b = np.ones((1, 1), np.uint8)
+        cleaned_b = cv2.morphologyEx(binary_b, cv2.MORPH_OPEN, kernel_b)
+        t1b = pytesseract.image_to_string(
+            Image.fromarray(cleaned_b), config="--oem 3 --psm 6 -l eng")
+        if t1b.strip():
+            results.append(("opencv_adaptive_wide", t1b))
     except Exception:
         pass
 
@@ -270,13 +290,20 @@ def extract_entities(text):
     e = {}
 
     # ── Blood Pressure ─────────────────────────────────────────────────
-    # Handles: BP: 109/73, BP- 109/73 mmHg, BP 109/73, 109/73 mmHg
-    bp = re.findall(
-        r"(?:BP|[Bb]lood\s*[Pp]ressure|B\.P\.?)[\s:=\-\u2013]+\s*"
-        r"(\d{2,3})\s*/\s*(\d{2,3})\s*(?:mmHg)?",
+    # Strategy A: Gemini fuzzy — BP + any OCR noise + NNN/NN
+    # Handles "BP Wala mmHg 109/73" or "BP -> 109/73" or "BP: 109/73"
+    bp_m = re.search(
+        r"(?:BP|[Bb]lood\s*[Pp]ressure|B\.P\.?)\D{0,25}(\d{2,3})\s*/\s*(\d{2,3})",
         text, re.IGNORECASE)
+    bp = [(bp_m.group(1), bp_m.group(2))] if bp_m else []
+    # Strategy B: standard labelled pattern
     if not bp:
-        # Fallback: plain NNN/NN pattern in physiological range
+        bp = re.findall(
+            r"(?:BP|[Bb]lood\s*[Pp]ressure|B\.P\.?)[\s:=\-\u2013]+\s*"
+            r"(\d{2,3})\s*/\s*(\d{2,3})\s*(?:mmHg)?",
+            text, re.IGNORECASE)
+    # Strategy C: plain NNN/NN fallback
+    if not bp:
         bp = re.findall(
             r"(?<![.\d])([89]\d|1\d{2}|2[0-4]\d)/([4-9]\d|1[0-2]\d)(?![.\d])",
             text)
@@ -320,15 +347,15 @@ def extract_entities(text):
         r"BMI[\s:=\-]+\s*(\d{2}(?:\.\d{1,2})?)", text, re.IGNORECASE)]
 
     # ── SPO2 / Oxygen Saturation ───────────────────────────────────────
-    # SPO2: 97%, SPO2 => 97, SPO2 97%, O2 sat 97
-    spo2 = re.findall(
-        r"(?:SPO2?|O2\s*sat(?:uration)?)[\s:=\->\u2192]*\s*(\d{2,3})\s*%?",
+    # Gemini fuzzy: SPO2 + any noise + 2-3 digits
+    spo2_m = re.search(
+        r"(?:SPO2?|O2\s*sat(?:uration)?)\D{0,10}(\d{2,3})\s*%?",
         text, re.IGNORECASE)
-    # Also catch plain "97%" if on a line with spo/oxygen context
+    spo2 = [spo2_m.group(1)] if spo2_m else []
     if not spo2:
-        for line in text.split('\n'):
-            if re.search(r'spo|oxygen|o2', line, re.IGNORECASE):
-                pct = re.findall(r'(\d{2,3})\s*%', line)
+        for line in text.split("\n"):
+            if re.search(r"spo|oxygen|o2", line, re.IGNORECASE):
+                pct = re.findall(r"(\d{2,3})\s*%", line)
                 spo2.extend(pct)
     e["spo2"] = [int(v) for v in spo2 if 50 <= int(v) <= 100]
 
