@@ -34,6 +34,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ── Secret helper ─────────────────────────────────────────────────────────
+# Streamlit Cloud stores secrets in st.secrets, not os.environ.
+# This helper checks both so the app works locally AND on Streamlit Cloud.
+def get_secret(key):
+    """Get API key from st.secrets (Streamlit Cloud) or os.environ (local)."""
+    try:
+        val = st.secrets.get(key, "")
+        if val:
+            return val
+    except Exception:
+        pass
+    return os.environ.get(key, "")
+
 # ══════════════════════════════════════════════════════════
 # TESSERACT SETUP
 # Auto-detects Windows install path. Streamlit Cloud uses
@@ -109,7 +122,7 @@ def extract_with_gemini_vision(img):
     import io
     import base64
 
-    api_key = os.environ.get("GOOGLE_API_KEY", "")
+    api_key = get_secret("GOOGLE_API_KEY")
     if not api_key:
         return None, "No Google API key — set GOOGLE_API_KEY in Streamlit secrets"
 
@@ -161,7 +174,7 @@ def extract_with_claude_vision(img):
     import base64
     import io
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = get_secret("ANTHROPIC_API_KEY")
     if not api_key:
         return None, "No Anthropic API key"
 
@@ -656,9 +669,9 @@ with st.sidebar:
     st.divider()
     page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","ℹ️ About"], label_visibility="collapsed")
     st.divider()
-    if os.environ.get("GOOGLE_API_KEY"):
+    if get_secret("GOOGLE_API_KEY"):
         st.success("Gemini Vision: Ready")
-    elif os.environ.get("ANTHROPIC_API_KEY"):
+    elif get_secret("ANTHROPIC_API_KEY"):
         st.success("Claude Vision: Ready")
     else:
         st.warning("Vision AI: Add GOOGLE_API_KEY to secrets")
@@ -1088,8 +1101,8 @@ elif "Clinical NLP" in page:
             extraction_method = ""
 
             # ── PRIMARY: Vision AI (Gemini or Claude — reads like a human) ──
-            google_key = os.environ.get("GOOGLE_API_KEY", "")
-            anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            google_key = get_secret("GOOGLE_API_KEY")
+            anthropic_key = get_secret("ANTHROPIC_API_KEY")
 
             if google_key or anthropic_key:
                 spinner_msg = ("Gemini Vision is reading the document..."
