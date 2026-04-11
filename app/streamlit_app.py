@@ -65,86 +65,122 @@ def setup_tesseract():
 TESSERACT_OK, TESSERACT_MSG = setup_tesseract()
 
 # ══════════════════════════════════════════════════════════
-# CLAUDE VISION — MULTIMODAL DOCUMENT UNDERSTANDING
-# Sends the image directly to Claude claude-sonnet-4-20250514 for reading.
-# No OCR pipeline needed — Claude reads the image like a human clinician.
-# Falls back to Tesseract OCR if API key not available.
+# MULTIMODAL VISION — DOCUMENT UNDERSTANDING
+# Primary: Google Gemini Flash (free tier — 1000 req/day)
+# Secondary: Claude Vision (if Anthropic key available)
+# Both read the image directly — no OCR pipeline needed.
+# The AI understands handwriting, layout, and clinical context.
 # ══════════════════════════════════════════════════════════
+
+CLINICAL_EXTRACTION_PROMPT = """You are a medical data extraction assistant analysing a handwritten clinical note.
+
+Look at this image carefully and extract ALL clinical values you can see written on the page.
+
+Return ONLY a plain text summary in this exact format (skip any line where the value is not visible):
+Name: [patient name]
+Age: [age in years]
+Sex: [M or F]
+BP: [systolic/diastolic mmHg — e.g. 109/73]
+PR: [pulse rate bpm — e.g. 69]
+SPO2: [oxygen saturation percent — e.g. 97]
+Weight: [kg — e.g. 104.7]
+Height: [cm — e.g. 160]
+BMI: [value — e.g. 40.6]
+Temperature: [celsius if visible]
+Diagnoses: [comma separated list of all diagnoses and conditions mentioned]
+Medications: [comma separated list of medications with doses]
+Smoking: [Yes or No if mentioned]
+Alcohol: [Yes or No if mentioned]
+Chief Complaint: [brief description]
+
+Rules:
+- Only report values you can clearly read. Do not guess.
+- If a value is not written on the page, skip that line entirely.
+- For BP write as numbers only e.g. 109/73 not "one hundred and nine over seventy three"
+- Read carefully — handwriting may be cursive or stylised"""
+
+
+def extract_with_gemini_vision(img):
+    """
+    Sends clinical document image to Google Gemini Flash (free tier).
+    Gemini uses visual reasoning to read handwriting and clinical layout.
+    Get free API key at: aistudio.google.com
+    """
+    import io
+
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
+    if not api_key:
+        return None, "No Google API key — set GOOGLE_API_KEY in Streamlit secrets"
+
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        # Send image directly to Gemini — no base64 conversion needed
+        response = model.generate_content([CLINICAL_EXTRACTION_PROMPT, img])
+        extracted_text = response.text
+        return extracted_text, "Gemini Vision"
+
+    except ImportError:
+        return None, "google-generativeai not installed"
+    except Exception as e:
+        return None, f"Gemini error: {str(e)}"
+
 
 def extract_with_claude_vision(img):
     """
-    Sends clinical document image directly to Claude Vision API.
-    Claude understands handwriting, layout, and clinical context.
-    Returns structured text with all clinical values extracted.
+    Secondary multimodal option using Claude Vision.
+    Used as fallback if Gemini is unavailable.
     """
     import base64
     import io
-    import json
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
-        return None, "No API key"
+        return None, "No Anthropic API key"
 
     try:
         import anthropic
 
-        # Convert PIL image to base64
         buffer = io.BytesIO()
-        img_rgb = img.convert("RGB")
-        img_rgb.save(buffer, format="JPEG", quality=95)
+        img.convert("RGB").save(buffer, format="JPEG", quality=95)
         img_b64 = base64.standard_b64encode(buffer.getvalue()).decode("utf-8")
 
         client = anthropic.Anthropic(api_key=api_key)
-
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": img_b64,
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": """You are a medical data extraction assistant. 
-Look at this clinical document image carefully and extract ALL clinical values you can see.
-
-Return ONLY a plain text summary in this exact format (include only values you can actually see):
-Name: [patient name if visible]
-Age: [age if visible]
-Sex: [M/F if visible]
-BP: [systolic/diastolic mmHg - e.g. 109/73]
-PR: [pulse rate bpm - e.g. 69]
-SPO2: [oxygen saturation % - e.g. 97]
-Weight: [kg - e.g. 104.7]
-Height: [cm - e.g. 160]
-BMI: [value - e.g. 40.6]
-Temperature: [celsius if visible]
-Diagnoses: [comma separated list of all diagnoses/conditions mentioned]
-Medications: [comma separated list of medications with doses if visible]
-Smoking: [Yes/No if mentioned]
-Chief Complaint: [brief description if visible]
-
-If a value is not visible or not mentioned, skip that line entirely.
-Do not guess or infer values. Only report what is clearly written."""
-                    }
-                ]
-            }]
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {
+                    "type": "base64", "media_type": "image/jpeg", "data": img_b64}},
+                {"type": "text", "text": CLINICAL_EXTRACTION_PROMPT}
+            ]}]
         )
-
-        extracted_text = message.content[0].text
-        return extracted_text, "Claude Vision"
+        return message.content[0].text, "Claude Vision"
 
     except ImportError:
         return None, "anthropic library not installed"
     except Exception as e:
         return None, f"Claude Vision error: {str(e)}"
+
+
+def extract_with_vision(img):
+    """
+    Master function: tries Gemini first, Claude second, returns best result.
+    """
+    # Try Gemini first (free tier — best for this use case)
+    result, method = extract_with_gemini_vision(img)
+    if result and result.strip():
+        return result, method
+
+    # Try Claude as backup
+    result, method = extract_with_claude_vision(img)
+    if result and result.strip():
+        return result, method
+
+    return None, "No vision API available"
 
 
 # ══════════════════════════════════════════════════════════
@@ -596,10 +632,12 @@ with st.sidebar:
     st.divider()
     page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","ℹ️ About"], label_visibility="collapsed")
     st.divider()
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if os.environ.get("GOOGLE_API_KEY"):
+        st.success("Gemini Vision: Ready")
+    elif os.environ.get("ANTHROPIC_API_KEY"):
         st.success("Claude Vision: Ready")
     else:
-        st.warning("Claude Vision: No API key")
+        st.warning("Vision AI: Add GOOGLE_API_KEY to secrets")
     if TESSERACT_OK: st.success(f"OCR Fallback: {TESSERACT_MSG}")
     else:            st.info("OCR Fallback: Tesseract not found")
     st.caption("⚠ Decision support only. Not a diagnostic tool.")
@@ -1025,20 +1063,24 @@ elif "Clinical NLP" in page:
             raw_text = ""
             extraction_method = ""
 
-            # ── PRIMARY: Claude Vision (multimodal — reads like a human) ──
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-            if api_key:
-                with st.spinner("Claude Vision is reading the document — analysing handwriting and layout..."):
-                    claude_text, claude_status = extract_with_claude_vision(img)
+            # ── PRIMARY: Vision AI (Gemini or Claude — reads like a human) ──
+            google_key = os.environ.get("GOOGLE_API_KEY", "")
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
-                if claude_text and claude_text.strip():
-                    st.success(f"Claude Vision extracted clinical data successfully")
-                    extraction_method = "Claude Vision (Multimodal AI)"
-                    raw_text = claude_text
-                    with st.expander("View Claude Vision extraction — verify before proceeding"):
-                        st.text_area("Claude extracted:", raw_text, height=280)
+            if google_key or anthropic_key:
+                spinner_msg = ("Gemini Vision is reading the document..."
+                               if google_key else "Claude Vision is reading the document...")
+                with st.spinner(spinner_msg):
+                    vision_text, vision_status = extract_with_vision(img)
+
+                if vision_text and vision_text.strip():
+                    st.success(f"Multimodal AI extraction complete — {vision_status}")
+                    extraction_method = f"{vision_status} (Multimodal AI)"
+                    raw_text = vision_text
+                    with st.expander(f"View {vision_status} extraction — verify before proceeding"):
+                        st.text_area("AI extracted:", raw_text, height=280)
                 else:
-                    st.warning(f"Claude Vision unavailable ({claude_status}) — falling back to Tesseract OCR.")
+                    st.warning(f"Vision AI unavailable ({vision_status}) — falling back to Tesseract OCR.")
 
             # ── FALLBACK: Tesseract OCR (if no API key or Claude fails) ──
             if not raw_text.strip():
