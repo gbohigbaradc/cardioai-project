@@ -103,28 +103,52 @@ Rules:
 def extract_with_gemini_vision(img):
     """
     Sends clinical document image to Google Gemini Flash (free tier).
-    Gemini uses visual reasoning to read handwriting and clinical layout.
-    Get free API key at: aistudio.google.com
+    Uses the new 2026 Unified GenAI SDK — client.models.generate_content syntax.
+    Get free API key at: aistudio.google.com (1000 requests/day free)
     """
     import io
+    import base64
 
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
         return None, "No Google API key — set GOOGLE_API_KEY in Streamlit secrets"
 
     try:
-        import google.generativeai as genai
+        # New 2026 Unified GenAI SDK syntax
+        from google import genai
+        from google.genai import types
 
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        client = genai.Client(api_key=api_key)
 
-        # Send image directly to Gemini — no base64 conversion needed
-        response = model.generate_content([CLINICAL_EXTRACTION_PROMPT, img])
+        # Convert PIL image to bytes for the new SDK
+        buffer = io.BytesIO()
+        img.convert("RGB").save(buffer, format="JPEG", quality=95)
+        img_bytes = buffer.getvalue()
+
+        # New SDK: pass image as Part with inline_data
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=[
+                CLINICAL_EXTRACTION_PROMPT,
+                types.Part.from_bytes(
+                    data=img_bytes,
+                    mime_type="image/jpeg"
+                )
+            ]
+        )
         extracted_text = response.text
         return extracted_text, "Gemini Vision"
 
     except ImportError:
-        return None, "google-generativeai not installed"
+        # Try old SDK as fallback
+        try:
+            import google.generativeai as genai_old
+            genai_old.configure(api_key=api_key)
+            model = genai_old.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content([CLINICAL_EXTRACTION_PROMPT, img])
+            return response.text, "Gemini Vision (legacy SDK)"
+        except Exception:
+            return None, "google-genai not installed — run: pip install -U google-genai"
     except Exception as e:
         return None, f"Gemini error: {str(e)}"
 
