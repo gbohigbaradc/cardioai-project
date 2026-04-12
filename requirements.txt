@@ -31,3 +31,4 @@ opencv-python-headless  # OpenCV image preprocessing for handwritten OCR (fallba
 google-genai             # Gemini Vision multimodal — NEW 2026 Unified SDK (pip install -U google-genai) — FREE tier 1000 req/day
 anthropic>=0.8.0        # Claude Vision fallback + LLM explanations (fallback: rule-based)
 openai>=1.3.0           # GPT-4 LLM explanations (fallback: rule-based)
+google-generativeai
