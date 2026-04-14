@@ -129,9 +129,8 @@ def extract_with_gemini_vision(img):
         import google.generativeai as genai
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
 
-        # Convert PIL image to bytes then to a Gemini-compatible Part
+        # Convert PIL image to bytes once
         buffer = io.BytesIO()
         img.convert("RGB").save(buffer, format="JPEG", quality=95)
         image_data = {
@@ -139,8 +138,29 @@ def extract_with_gemini_vision(img):
             "data": buffer.getvalue()
         }
 
-        response = model.generate_content([CLINICAL_EXTRACTION_PROMPT, image_data])
-        return response.text, "Gemini Vision"
+        # Try models in order — if quota exceeded on one, try the next
+        models_to_try = [
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-8b",
+            "gemini-1.0-pro-vision",
+        ]
+
+        last_error = ""
+        for model_name in models_to_try:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(
+                    [CLINICAL_EXTRACTION_PROMPT, image_data])
+                return response.text, f"Gemini Vision ({model_name})"
+            except Exception as me:
+                last_error = str(me)
+                # If quota exceeded, try next model
+                if "quota" in str(me).lower() or "429" in str(me):
+                    continue
+                # Any other error — stop trying
+                break
+
+        return None, f"Gemini quota exceeded on all models: {last_error[:200]}"
 
     except Exception as e:
         return None, f"Gemini error: {type(e).__name__}: {str(e)}"
