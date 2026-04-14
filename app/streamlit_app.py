@@ -115,9 +115,9 @@ Rules:
 
 def extract_with_gemini_vision(img):
     """
-    Gemini Vision multimodal extraction.
-    Uses google-generativeai (the stable, proven package on Streamlit Cloud).
-    Free tier: 1000 requests/day at aistudio.google.com
+    Gemini Vision multimodal extraction using google-generativeai SDK.
+    Tries current 2026 model names in order until one works.
+    Free tier: 1500 requests/day at aistudio.google.com
     """
     import io
 
@@ -127,43 +127,46 @@ def extract_with_gemini_vision(img):
 
     try:
         import google.generativeai as genai
-
         genai.configure(api_key=api_key)
 
-        # Convert PIL image to bytes once
+        # Convert PIL image to bytes
         buffer = io.BytesIO()
         img.convert("RGB").save(buffer, format="JPEG", quality=95)
-        image_data = {
-            "mime_type": "image/jpeg",
-            "data": buffer.getvalue()
-        }
+        img_bytes = buffer.getvalue()
 
-        # Try models in order — if quota exceeded on one, try the next
+        # Image part as dict — works across all SDK versions
+        image_part = {"mime_type": "image/jpeg", "data": img_bytes}
+
+        # Try model names in order — 2026 current models first
+        # The old SDK needs "models/" prefix for some versions
         models_to_try = [
+            "gemini-2.0-flash",
+            "models/gemini-2.0-flash",
+            "gemini-2.5-flash",
+            "models/gemini-2.5-flash",
             "gemini-1.5-flash",
-            "gemini-1.5-flash-8b",
-            "gemini-1.0-pro-vision",
+            "models/gemini-1.5-flash",
+            "gemini-flash-latest",
         ]
 
-        last_error = ""
+        errors = []
         for model_name in models_to_try:
             try:
                 model = genai.GenerativeModel(model_name)
                 response = model.generate_content(
-                    [CLINICAL_EXTRACTION_PROMPT, image_data])
+                    [CLINICAL_EXTRACTION_PROMPT, image_part]
+                )
                 return response.text, f"Gemini Vision ({model_name})"
             except Exception as me:
-                last_error = str(me)
-                # If quota exceeded, try next model
-                if "quota" in str(me).lower() or "429" in str(me):
-                    continue
-                # Any other error — stop trying
-                break
+                errors.append(f"{model_name}: {str(me)[:80]}")
+                continue
 
-        return None, f"Gemini quota exceeded on all models: {last_error[:200]}"
+        return None, "All models failed: " + " | ".join(errors[:3])
 
+    except ImportError:
+        return None, "google-generativeai not installed"
     except Exception as e:
-        return None, f"Gemini error: {type(e).__name__}: {str(e)}"
+        return None, f"Gemini setup error: {type(e).__name__}: {str(e)}"
 
 
 def extract_with_claude_vision(img):
