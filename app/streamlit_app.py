@@ -230,7 +230,10 @@ def extract_with_vision(img):
 
 @st.cache_resource
 def load_models():
-    models = {}
+    """
+    Load trained models. If model files are missing (e.g. on Streamlit Cloud),
+    automatically run the training pipeline to generate them.
+    """
     files = {
         "cardio_xgb":      "models/cardio_xgb.pkl",
         "cardio_rf":       "models/cardio_rf.pkl",
@@ -240,6 +243,48 @@ def load_models():
         "scaler":          "models/scaler.pkl",
         "scaler_ret":      "models/scaler_retention.pkl",
     }
+
+    # Check if models exist
+    missing = [p for p in files.values() if not os.path.exists(p)]
+
+    if missing:
+        # Models not found — run training pipeline automatically
+        st.info("First run detected — training models now. This takes 2-3 minutes...")
+        progress = st.progress(0, text="Setting up...")
+
+        try:
+            import subprocess, sys
+            os.makedirs("models", exist_ok=True)
+            os.makedirs("outputs", exist_ok=True)
+            os.makedirs("data", exist_ok=True)
+
+            # Run preprocessing
+            progress.progress(10, text="Running preprocessing...")
+            result = subprocess.run(
+                [sys.executable, "01_preprocessing.py"],
+                capture_output=True, text=True, timeout=120)
+            if result.returncode != 0:
+                st.warning(f"Preprocessing warning: {result.stderr[-200:]}")
+
+            # Run model training
+            progress.progress(40, text="Training models (this takes ~2 minutes)...")
+            result = subprocess.run(
+                [sys.executable, "03_model_training.py"],
+                capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                st.warning(f"Training warning: {result.stderr[-200:]}")
+
+            progress.progress(100, text="Models ready!")
+            st.success("Models trained successfully. Loading now...")
+            progress.empty()
+
+        except Exception as e:
+            st.error(f"Auto-training failed: {e}. Please run scripts locally and upload model files.")
+            progress.empty()
+            return {name: None for name in files}
+
+    # Load all models
+    models = {}
     for name, path in files.items():
         models[name] = joblib.load(path) if os.path.exists(path) else None
     return models
@@ -1172,29 +1217,95 @@ elif "Clinical NLP" in page:
                 st.caption(f"Extraction method: {extraction_method}")
 
     elif "PDF" in method:
-        st.info("For typed/digital PDFs. For scanned PDFs use image upload instead.")
+        st.info("Upload any PDF — typed or scanned. Scanned PDFs will be processed with Gemini Vision or OCR automatically.")
         uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"])
         if uploaded_pdf is not None:
             import io
-            with st.spinner("Extracting text from PDF..."):
+            pdf_bytes = uploaded_pdf.read()
+
+            with st.spinner("Processing PDF..."):
+                raw_text = ""
+
+                # Step 1: Try pdfplumber for digital/typed PDFs
                 try:
                     import pdfplumber
-                    with pdfplumber.open(io.BytesIO(uploaded_pdf.read())) as pdf:
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
                         pages = [p.extract_text() for p in pdf.pages if p.extract_text()]
                         raw_text = "\n".join(f"--- Page {i+1} ---\n{t}" for i, t in enumerate(pages))
                     if raw_text.strip():
-                        st.success(f"PDF processed — {len(raw_text.split())} words extracted")
+                        st.success(f"Digital PDF processed — {len(raw_text.split())} words extracted")
                         with st.expander("View extracted text"):
                             st.text_area("PDF content:", raw_text[:4000], height=200)
-                    else:
-                        st.warning("No text found — this may be a scanned PDF. Use image upload instead.")
+                except Exception:
+                    pass
+
+                # Step 2: If no text found, it is a scanned PDF — convert to image and use Vision AI
+                if not raw_text.strip():
+                    st.info("This appears to be a scanned PDF. Converting to image and running Vision AI...")
+                    try:
+                        # Convert first page of PDF to image using pypdf + PIL
+                        from PIL import Image
+                        import base64
+
+                        # Try pdf2image first
+                        try:
+                            from pdf2image import convert_from_bytes
+                            images = convert_from_bytes(pdf_bytes, dpi=200, first_page=1, last_page=3)
+                            st.success(f"PDF converted to {len(images)} image(s)")
+                        except Exception:
+                            # Fallback: use PyMuPDF if available
+                            try:
+                                import fitz
+                                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                                images = []
+                                for page_num in range(min(3, len(doc))):
+                                    page = doc[page_num]
+                                    mat = fitz.Matrix(2, 2)
+                                    pix = page.get_pixmap(matrix=mat)
+                                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                                    images.append(img)
+                                st.success(f"PDF converted to {len(images)} image(s) via PyMuPDF")
+                            except Exception as fe:
+                                images = []
+                                st.warning(f"Could not convert PDF to images: {fe}. Please use the Image upload option instead.")
+
+                        # Run vision on each page and combine results
+                        if images:
+                            all_text = []
+                            for i, page_img in enumerate(images):
+                                st.image(page_img, caption=f"Page {i+1}", use_container_width=True)
+
+                                # Try Gemini Vision first
+                                google_key = get_secret("GOOGLE_API_KEY")
+                                anthropic_key = get_secret("ANTHROPIC_API_KEY")
+
+                                if google_key or anthropic_key:
+                                    with st.spinner(f"Vision AI reading page {i+1}..."):
+                                        page_text, method_used = extract_with_vision(page_img)
+                                    if page_text and page_text.strip():
+                                        all_text.append(f"--- Page {i+1} (Vision AI) ---\n{page_text}")
+                                        continue
+
+                                # Fallback to Tesseract OCR
+                                if TESSERACT_OK:
+                                    with st.spinner(f"OCR reading page {i+1}..."):
+                                        page_text = run_ocr(page_img)
+                                    if page_text.strip():
+                                        all_text.append(f"--- Page {i+1} (OCR) ---\n{page_text}")
+
+                            raw_text = "\n\n".join(all_text)
+                            if raw_text.strip():
+                                st.success(f"Scanned PDF processed — extracted from {len(images)} page(s)")
+                                with st.expander("View extracted text — verify before extracting"):
+                                    st.text_area("Extracted:", raw_text[:4000], height=250)
+                            else:
+                                st.warning("Could not extract text from PDF. Please type key values manually below.")
+                                raw_text = st.text_area("Type clinical values manually:", height=250,
+                                    placeholder="BP: 109/73 mmHg\nPR: 69 bpm\nWeight: 104.7 kg\nHeight: 160 cm\nDiagnosis: Hypertension")
+
+                    except Exception as e:
+                        st.error(f"PDF processing error: {e}")
                         raw_text = st.text_area("Paste text manually:", height=200)
-                except ImportError:
-                    st.warning("pdfplumber not installed. Paste PDF text manually.")
-                    raw_text = st.text_area("Paste text from PDF:", height=200)
-                except Exception as e:
-                    st.error(f"PDF error: {e}")
-                    raw_text = st.text_area("Paste text manually:", height=200)
 
     st.divider()
     if st.button("🔍 Extract Clinical Entities", type="primary", use_container_width=True):
