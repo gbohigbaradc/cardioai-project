@@ -1,0 +1,187 @@
+{
+  "blood_pressure": [
+    {
+      "raw": "148/92",
+      "systolic": 148,
+      "diastolic": 92,
+      "hypertensive": true
+    }
+  ],
+  "heart_rate": [
+    {
+      "value": 88,
+      "unit": "bpm"
+    }
+  ],
+  "diagnoses": [
+    "Hypertension (Grade 2)",
+    "Hypertension",
+    "Type 2 Diabetes Mellitus \u2014 Poorly Controlled",
+    "Suspected Coronary Artery Disease",
+    "Coronary Artery Disease",
+    "Diabetes Mellitus"
+  ],
+  "medications": [
+    {
+      "name": "Amlodipine",
+      "dose": "10mg"
+    },
+    {
+      "name": "Metformin",
+      "dose": "500mg"
+    },
+    {
+      "name": "Aspirin",
+      "dose": "75mg"
+    },
+    {
+      "name": "Atorvastatin",
+      "dose": "40mg"
+    },
+    {
+      "name": "Losartan",
+      "dose": "50mg"
+    }
+  ],
+  "lifestyle_factors": {
+    "smoking": {
+      "present": true,
+      "daily_count": 15
+    },
+    "alcohol": "moderate",
+    "physical_activity": "sedentary",
+    "diet": "unhealthy"
+  },
+  "spacy_entities": [
+    {
+      "text": "A. Adewale",
+      "label": "PERSON",
+      "description": "People, including fictional"
+    },
+    {
+      "text": "the past 3 weeks",
+      "label": "DATE",
+      "description": "Absolute or relative dates or periods"
+    },
+    {
+      "text": "148/92",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "88",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "36.8\u00b0",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "84 kg",
+      "label": "QUANTITY",
+      "description": "Measurements, as of weight or distance"
+    },
+    {
+      "text": "ECG",
+      "label": "ORG",
+      "description": "Companies, agencies, institutions, etc."
+    },
+    {
+      "text": "ST",
+      "label": "GPE",
+      "description": "Countries, cities, states"
+    },
+    {
+      "text": "V4",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "1",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "2",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "3",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "2",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "500",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "75",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "daily",
+      "label": "DATE",
+      "description": "Absolute or relative dates or periods"
+    },
+    {
+      "text": "Smoker",
+      "label": "PERSON",
+      "description": "People, including fictional"
+    },
+    {
+      "text": "15",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "12 years",
+      "label": "DATE",
+      "description": "Absolute or relative dates or periods"
+    },
+    {
+      "text": "3",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "/week",
+      "label": "DATE",
+      "description": "Absolute or relative dates or periods"
+    },
+    {
+      "text": "more than 200",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "1000",
+      "label": "CARDINAL",
+      "description": "Numerals that do not fall under another type"
+    },
+    {
+      "text": "cardiac rehabilitation",
+      "label": "ORG",
+      "description": "Companies, agencies, institutions, etc."
+    },
+    {
+      "text": "8 weeks",
+      "label": "DATE",
+      "description": "Absolute or relative dates or periods"
+    },
+    {
+      "text": "4 weeks",
+      "label": "DATE",
+      "description": "Absolute or relative dates or periods"
+    }
+  ]
+}

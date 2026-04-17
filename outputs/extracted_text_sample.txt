@@ -1,0 +1,46 @@
+
+PATIENT CLINICAL NOTES
+Date: 15/03/2025
+Patient ID: PT-00482
+Clinician: Dr. A. Adewale
+
+PRESENTING COMPLAINT:
+Patient presents with chest tightness and shortness of breath on exertion.
+Reports episodes of palpitations over the past 3 weeks.
+
+VITAL SIGNS:
+Blood Pressure: 148/92 mmHg
+Heart Rate: 88 bpm
+SpO2: 97%
+Temperature: 36.8°C
+Weight: 84 kg
+
+EXAMINATION FINDINGS:
+Mild peripheral oedema noted in lower limbs.
+No murmurs detected on auscultation.
+ECG shows ST-segment changes in leads V4-V6.
+
+DIAGNOSES:
+1. Hypertension (Grade 2)
+2. Suspected coronary artery disease
+3. Type 2 Diabetes Mellitus — poorly controlled
+
+CURRENT MEDICATIONS:
+- Amlodipine 10mg once daily
+- Metformin 500mg twice daily
+- Aspirin 75mg once daily
+- Atorvastatin 40mg at night
+
+LIFESTYLE ASSESSMENT:
+Patient reports sedentary lifestyle. Smoker (15 cigarettes/day for 12 years).
+Alcohol: moderate (3-4 units/week). Diet: high sodium, low fibre.
+Exercise: minimal — states difficulty walking more than 200m without breathlessness.
+
+PLAN:
+- Refer to cardiology for further workup and possible angiography
+- Increase Metformin to 1000mg twice daily
+- Initiate Losartan 50mg for blood pressure management
+- Refer to dietitian and cardiac rehabilitation program
+- Repeat HbA1c and lipid panel in 8 weeks
+
+NEXT APPOINTMENT: 4 weeks

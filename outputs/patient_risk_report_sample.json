@@ -1,0 +1,56 @@
+{
+  "patient_id": "PT-00482",
+  "cardiovascular_risk": {
+    "probability": 0.78,
+    "percentage": "78.0%",
+    "risk_tier": "HIGH",
+    "color_code": "orange"
+  },
+  "key_risk_factors": [
+    {
+      "feature": "lifestyle_risk_index",
+      "explanation": "Lifestyle Risk Index: 0.72/1.0 — multiple lifestyle risk factors contributing to elevated risk",
+      "shap_value": 0.25
+    },
+    {
+      "feature": "oldpeak",
+      "explanation": "ST depression: 2.4 — significant ST changes may indicate myocardial ischemia",
+      "shap_value": 0.22
+    },
+    {
+      "feature": "trestbps",
+      "explanation": "Resting blood pressure 148 mmHg — elevated, suggesting arterial stress",
+      "shap_value": 0.21
+    },
+    {
+      "feature": "exang",
+      "explanation": "Exercise-induced angina: Present — chest pain during exertion is a significant cardiac symptom",
+      "shap_value": 0.17
+    },
+    {
+      "feature": "chol",
+      "explanation": "Cholesterol 267 mg/dl — high, associated with plaque formation",
+      "shap_value": 0.15
+    }
+  ],
+  "protective_factors": [
+    {
+      "feature": "thalach",
+      "explanation": "Maximum heart rate achieved: 112 bpm — reduced exercise capacity may indicate cardiac stress",
+      "shap_value": -0.18
+    }
+  ],
+  "recommendations": [
+    "URGENT: Refer to cardiologist for comprehensive evaluation.",
+    "Order: Full lipid panel, HbA1c, ECG, and echocardiogram.",
+    "Initiate or review antihypertensive medication if BP ≥ 140/90.",
+    "Prescribe structured cardiac rehabilitation program.",
+    "Counsel on immediate lifestyle modifications: smoking cessation, diet, exercise.",
+    "Schedule follow-up cardiovascular risk assessment in 3 months.",
+    "Encourage patient to complete lifestyle modification questionnaire."
+  ],
+  "retention_risk": {
+    "dropout_probability": 0.43,
+    "retention_flag": "STABLE"
+  }
+}

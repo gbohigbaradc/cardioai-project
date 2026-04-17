@@ -1,0 +1,8 @@
+Model,AUC-ROC,F1,Accuracy,Precision,Recall,Brier
+Logistic Regression,0.9268,0.8649,0.8537,0.8205,0.9143,0.1062
+Random Forest,1.0,1.0,1.0,1.0,1.0,0.011
+XGBoost,1.0,1.0,1.0,1.0,1.0,0.0012
+Neural Network (MLP),0.999,0.9765,0.9756,0.963,0.9905,0.0182
+Retention — Logistic Regression,0.6578,0.6893,0.6,0.8875,0.5635,0.2477
+Retention — Random Forest,0.599,0.8736,0.7812,0.8013,0.9603,0.1709
+Retention — XGBoost,0.5973,0.8372,0.7375,0.8182,0.8571,0.1981
