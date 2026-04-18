@@ -18,7 +18,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 st.set_page_config(
-    page_title="CardioAI — Cardiovascular Risk & Patient Retention",
+    page_title="CardioAI — JoiHealth",
     page_icon="🫀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -712,8 +712,33 @@ models = load_models()
 xgb_explainer = load_explainer(models.get("cardio_xgb"))
 
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/heart-with-pulse.png", width=64)
-    st.title("CardioAI")
+    # ── JoiHealth Logo ────────────────────────────────────────
+    import os
+    logo_paths = [
+        "Joi_Health_PM.jpeg",
+        "app/Joi_Health_PM.jpeg",
+        os.path.join(os.path.dirname(__file__), "Joi_Health_PM.jpeg"),
+        os.path.join(os.path.dirname(__file__), "..", "Joi_Health_PM.jpeg"),
+    ]
+    logo_loaded = False
+    for logo_path in logo_paths:
+        if os.path.exists(logo_path):
+            st.image(logo_path, use_container_width=True)
+            logo_loaded = True
+            break
+    if not logo_loaded:
+        # Fallback: show text branding if logo file not found
+        st.markdown("""
+        <div style='text-align:center;padding:8px 0 4px;'>
+          <span style='font-size:22px;font-weight:700;color:#0D1B2A;font-family:Georgia,serif;'>
+            Joi Health
+          </span><br>
+          <span style='font-size:10px;color:#475569;letter-spacing:2px;'>
+            COMMITMENT TO CARE
+          </span>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='text-align:center;margin:-8px 0 4px;'><span style='font-size:13px;font-weight:600;color:#0D1B2A;'>CardioAI</span></div>", unsafe_allow_html=True)
     st.caption("Explainable AI for Cardiovascular Risk & Patient Retention")
     st.divider()
     page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","ℹ️ About"], label_visibility="collapsed")
