@@ -741,7 +741,7 @@ with st.sidebar:
     st.markdown("<div style='text-align:center;margin:-8px 0 4px;'><span style='font-size:13px;font-weight:600;color:#0D1B2A;'>CardioAI</span></div>", unsafe_allow_html=True)
     st.caption("Explainable AI for Cardiovascular Risk & Patient Retention")
     st.divider()
-    page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","ℹ️ About"], label_visibility="collapsed")
+    page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","🔬 Medical Imaging","ℹ️ About"], label_visibility="collapsed")
     st.divider()
     if get_secret("GOOGLE_API_KEY"):
         st.success("Gemini Vision: Ready")
@@ -1345,8 +1345,317 @@ elif "Clinical NLP" in page:
             st.warning("Please provide a document first — upload a file or paste text above.")
 
 # ══════════════════════════════════════════════════════════
-# PAGE 4 — ABOUT
+# PAGE 5 — MEDICAL IMAGING (CNN)
 # ══════════════════════════════════════════════════════════
+
+elif "Medical Imaging" in page:
+    st.title("🔬 Medical Imaging — CNN Analysis")
+    st.caption("Upload a chest X-ray to detect 18 pathologies, segment anatomy, compute cardiothoracic ratio, and generate Grad-CAM heatmaps.")
+
+    st.info(
+        "**Powered by DenseNet-121** pretrained on 100,000+ chest X-rays "
+        "(NIH ChestX-ray14, CheXpert, MIMIC-CXR). "
+        "Detects 18 pathologies with pixel-level Grad-CAM explainability."
+    )
+
+    # ── Check dependencies ─────────────────────────────────
+    cnn_ready = False
+    try:
+        import torch
+        import torchxrayvision as xrv
+        import skimage
+        cnn_ready = True
+    except ImportError:
+        st.warning(
+            "CNN imaging requires additional packages. "
+            "Add to requirements.txt: `torchxrayvision scikit-image`"
+        )
+
+    uploaded_xray = st.file_uploader(
+        "Upload chest X-ray (JPG, PNG)",
+        type=["jpg", "jpeg", "png"],
+        help="PA (posterior-anterior) or AP view chest X-ray. "
+             "DICOM: export as PNG/JPEG first."
+    )
+
+    if uploaded_xray and cnn_ready:
+        from PIL import Image as PILImage
+        import torch
+        import torch.nn.functional as F
+        import torchvision.transforms as transforms
+        import torchxrayvision as xrv
+        import skimage.transform
+        import numpy as np
+        import matplotlib; matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.cm as cm_module
+
+        img_pil = PILImage.open(uploaded_xray)
+        st.image(img_pil, caption=f"Uploaded: {uploaded_xray.name}", use_container_width=True)
+
+        # ── Thresholds ─────────────────────────────────────
+        THRESHOLDS = {
+            "Cardiomegaly": 0.35, "Effusion": 0.40, "Pneumonia": 0.30,
+            "Atelectasis": 0.40, "Consolidation": 0.40, "Pneumothorax": 0.28,
+            "Edema": 0.35, "Emphysema": 0.40, "Fibrosis": 0.40,
+            "Nodule": 0.45, "Mass": 0.38, "Infiltration": 0.40,
+            "Pleural_Thickening": 0.40, "Hernia": 0.30,
+        }
+        URGENT  = {"Pneumothorax", "Mass", "Edema", "Effusion"}
+        CARDIAC = {"Cardiomegaly", "Effusion", "Edema", "Consolidation"}
+
+        # ── Preprocess ─────────────────────────────────────
+        with st.spinner("Preprocessing image..."):
+            img_np = np.array(img_pil.convert("L")).astype(np.float32)
+            img_norm = xrv.datasets.normalize(img_np, img_np.max() if img_np.max() > 0 else 255)
+            img_norm = img_norm[None, ...]
+            transform = transforms.Compose([
+                xrv.datasets.XRayCenterCrop(),
+                xrv.datasets.XRayResizer(224)
+            ])
+            img_tensor = torch.from_numpy(transform(img_norm)).float()
+
+        # ── Classification ─────────────────────────────────
+        with st.spinner("Running DenseNet-121 CNN — classifying 18 pathologies..."):
+            try:
+                model = xrv.models.DenseNet(weights="densenet121-res224-all")
+                model.eval()
+                with torch.no_grad():
+                    outputs = model(img_tensor[None, ...])
+                pathologies = model.targets
+                scores = dict(zip(pathologies, outputs[0].detach().numpy().tolist()))
+                scores = dict(sorted(scores.items(), key=lambda x: x[1], reverse=True))
+                st.success(f"Classification complete — {len(scores)} pathologies scored")
+            except Exception as e:
+                st.error(f"Classification error: {e}")
+                scores = {}
+                model = None
+
+        # ── Segmentation ───────────────────────────────────
+        masks, seg_targets = None, None
+        with st.spinner("Running anatomical segmentation..."):
+            try:
+                seg_model = xrv.baseline_models.chestx_det.PSPNet()
+                seg_model.eval()
+                with torch.no_grad():
+                    seg_out = seg_model(img_tensor[None, ...])
+                masks = seg_out[0].detach().numpy()
+                seg_targets = seg_model.targets
+                st.success(f"Segmented {len(seg_targets)} anatomical structures")
+            except Exception as e:
+                st.info(f"Segmentation unavailable: {e}")
+
+        # ── Cardiothoracic Ratio ────────────────────────────
+        ctr, cardiomegaly = None, None
+        if masks is not None and seg_targets is not None:
+            try:
+                hi = seg_targets.index("Heart")
+                li = seg_targets.index("Left Lung")
+                ri = seg_targets.index("Right Lung")
+                hm = masks[hi] > 0.5
+                chest_m = (masks[li] > 0.5) | (masks[ri] > 0.5) | hm
+                hc = np.where(hm.any(axis=0))[0]
+                cc = np.where(chest_m.any(axis=0))[0]
+                if len(hc) >= 2 and len(cc) >= 2:
+                    ctr = round(float((hc[-1]-hc[0]) / (cc[-1]-cc[0])), 4)
+                    cardiomegaly = ctr >= 0.50
+            except Exception:
+                pass
+
+        # ── Flags ──────────────────────────────────────────
+        flags = []
+        for p, s in scores.items():
+            t = THRESHOLDS.get(p, 0.45)
+            if s >= t:
+                flags.append({
+                    "pathology": p, "score": round(s, 3),
+                    "severity": "Mild" if s < 0.50 else ("Moderate" if s < 0.70 else "Significant"),
+                    "urgent": p in URGENT, "cardiac": p in CARDIAC
+                })
+        flags.sort(key=lambda x: (not x["urgent"], -x["score"]))
+
+        # ── Grad-CAM ───────────────────────────────────────
+        gcam = None
+        top_path = flags[0]["pathology"] if flags else (list(scores.keys())[0] if scores else None)
+        if model and top_path:
+            with st.spinner(f"Generating Grad-CAM for {top_path}..."):
+                try:
+                    grads, acts = [], []
+                    def bwd(m, gi, go): grads.append(go[0])
+                    def fwd(m, i, o):   acts.append(o)
+                    layer = model.model.features.denseblock4
+                    h1 = layer.register_forward_hook(fwd)
+                    h2 = layer.register_backward_hook(bwd)
+                    inp = img_tensor[None, ...].requires_grad_(True)
+                    out = model(inp)
+                    model.zero_grad()
+                    out[0, model.targets.index(top_path)].backward()
+                    g = grads[0][0]; a = acts[0][0]
+                    c = F.relu((g.mean(dim=[1,2])[:, None, None] * a).sum(0)).detach().numpy()
+                    if c.max() > 0: c = (c - c.min()) / (c.max() - c.min())
+                    gcam = skimage.transform.resize(c, (224, 224))
+                    h1.remove(); h2.remove()
+                    st.success(f"Grad-CAM generated for: {top_path}")
+                except Exception as e:
+                    st.info(f"Grad-CAM unavailable: {e}")
+
+        # ── RESULTS DISPLAY ────────────────────────────────
+        st.divider()
+        st.subheader("Results")
+
+        # CTR metric card
+        if ctr is not None:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Cardiothoracic Ratio", f"{ctr:.3f}",
+                          delta="CARDIOMEGALY" if cardiomegaly else "Normal")
+            with col2:
+                st.metric("Findings Flagged", len(flags))
+            with col3:
+                urgent_count = sum(1 for f in flags if f["urgent"])
+                st.metric("Urgent Findings", urgent_count)
+
+        # Urgent alerts
+        for f in flags:
+            if f["urgent"]:
+                st.error(f"⚠ URGENT — {f['pathology']}: Score {f['score']:.3f} [{f['severity']}]")
+
+        # Cardiomegaly alert
+        if cardiomegaly:
+            st.error(f"⚠ CARDIOMEGALY DETECTED — CTR = {ctr:.3f} (Normal < 0.50). Recommend echocardiogram.")
+
+        # ── Visual grid ────────────────────────────────────
+        img_display = img_tensor[0].numpy()
+
+        col_a, col_b, col_c = st.columns(3)
+
+        with col_a:
+            st.markdown("**Original X-ray**")
+            st.image(((img_display - img_display.min()) /
+                      (img_display.max() - img_display.min() + 1e-8) * 255).astype(np.uint8),
+                     use_container_width=True)
+
+        with col_b:
+            st.markdown("**Anatomical Segmentation**")
+            if masks is not None:
+                ov = np.stack([img_display] * 3, axis=-1)
+                ov = (ov - ov.min()) / (ov.max() - ov.min() + 1e-8)
+                cmap_seg = {"Heart": [1,.2,.2], "Left Lung": [.2,.6,1],
+                            "Right Lung": [.2,.9,.4], "Aorta": [1,.8,0]}
+                for struct, col in cmap_seg.items():
+                    if struct in seg_targets:
+                        m = skimage.transform.resize(masks[seg_targets.index(struct)], (224,224)) > 0.5
+                        for ch in range(3):
+                            ov[:,:,ch] = np.where(m, ov[:,:,ch]*.35 + col[ch]*.65, ov[:,:,ch])
+                st.image((ov * 255).astype(np.uint8), use_container_width=True)
+                st.caption("Red=Heart  Blue=L.Lung  Green=R.Lung  Yellow=Aorta")
+            else:
+                st.info("Segmentation unavailable")
+
+        with col_c:
+            st.markdown(f"**Grad-CAM: {top_path}**")
+            if gcam is not None:
+                norm = (img_display - img_display.min()) / (img_display.max() - img_display.min() + 1e-8)
+                rgb  = np.stack([norm]*3, axis=-1)
+                heat = cm_module.jet(gcam)[:,:,:3]
+                blended = (rgb * 0.45 + heat * 0.55)
+                st.image((blended * 255).astype(np.uint8), use_container_width=True)
+                st.caption("Red = region driving prediction")
+            else:
+                st.info("Grad-CAM unavailable")
+
+        # ── Scores table ───────────────────────────────────
+        st.divider()
+        st.subheader("Pathology Scores")
+        flag_set = {f["pathology"] for f in flags}
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Flagged Abnormalities**")
+            if flags:
+                for f in flags:
+                    label = f"{f['pathology']} — {f['score']:.3f} [{f['severity']}]"
+                    if f["urgent"]:
+                        st.error(f"⚠ {label} [URGENT]")
+                    elif f["cardiac"]:
+                        st.warning(f"♥ {label} [CARDIAC]")
+                    else:
+                        st.warning(label)
+            else:
+                st.success("No abnormalities detected above threshold")
+
+        with c2:
+            st.markdown("**All Scores (sorted)**")
+            import pandas as pd
+            df = pd.DataFrame([
+                {"Pathology": p, "Score": round(s, 4),
+                 "Flagged": "⚠ Yes" if p in flag_set else "No",
+                 "Threshold": THRESHOLDS.get(p, 0.45)}
+                for p, s in scores.items()
+            ])
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # ── Clinical report ────────────────────────────────
+        st.divider()
+        st.subheader("Clinical Report")
+        report_lines = [
+            "CARDIOAI — CHEST X-RAY ANALYSIS REPORT",
+            "AI-Assisted Screening — NOT a diagnostic replacement",
+            "=" * 50,
+        ]
+        if not flags:
+            report_lines.append("IMPRESSION: No significant findings detected.")
+        else:
+            urgent = [f for f in flags if f["urgent"]]
+            report_lines.append(f"IMPRESSION: {'URGENT — ' if urgent else ''}{len(flags)} finding(s). Clinical review advised.")
+
+        if ctr:
+            report_lines.append(f"\nCARDIOTHORACIC RATIO: {ctr:.3f}")
+            report_lines.append("  CARDIOMEGALY DETECTED" if cardiomegaly else "  Normal (CTR < 0.50)")
+
+        if flags:
+            report_lines.append(f"\nFINDINGS ({len(flags)}):")
+            for f in flags:
+                report_lines.append(
+                    f"  {'!' if f['urgent'] else '-'} {f['pathology']:<22} "
+                    f"Score: {f['score']:.3f}  [{f['severity']}]"
+                    f"{' URGENT' if f['urgent'] else ''}"
+                    f"{' CARDIAC' if f['cardiac'] else ''}"
+                )
+        report_lines.append("\nIMPORTANT: This is an AI screening tool.")
+        report_lines.append("All findings must be confirmed by a radiologist.")
+
+        st.text("\n".join(report_lines))
+
+
+        st.warning(
+            "This AI analysis is for screening assistance only. "
+            "It does not replace clinical judgement or radiologist review. "
+            "Do not make treatment decisions based solely on this output."
+        )
+
+    elif uploaded_xray and not cnn_ready:
+        st.error("Install torchxrayvision and scikit-image to use this feature.")
+
+    if not uploaded_xray:
+        st.info(
+            "Upload a chest PA or AP X-ray to begin analysis. "
+            "The system will automatically detect pathologies, segment anatomy, "
+            "compute cardiothoracic ratio, and generate Grad-CAM heatmaps."
+        )
+        st.markdown("""
+        **What this module detects:**
+        - Cardiomegaly, Pleural Effusion, Pulmonary Oedema (cardiac conditions)
+        - Pneumonia, Atelectasis, Consolidation (lung infections)
+        - Pneumothorax, Mass, Nodule (urgent findings)
+        - Emphysema, Fibrosis, Pleural Thickening (chronic lung disease)
+        - Full anatomical segmentation: Heart, Lungs, Aorta, Spine
+        - Cardiothoracic ratio (CTR) with cardiomegaly threshold
+        """)
+
+# ══════════════════════════════════════════════════════════════
+# PAGE 4 — ABOUT
+# ══════════════════════════════════════════════════════════════
 
 elif "About" in page:
     st.title("ℹ️ About CardioAI")
