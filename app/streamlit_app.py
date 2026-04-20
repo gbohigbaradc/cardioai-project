@@ -882,6 +882,7 @@ if "Risk Prediction" in page:
             # Sources: AHA/ACC guidelines, Framingham Heart Study,
             # INTERHEART Africa sub-study for Nigerian populations
             # Each tuple: (mean annual change, std dev)
+            # v2.1 — lri_delta keys present in all scenarios
             PROGRESSION = {
                 # Without any intervention
                 "no_intervention": {
@@ -957,11 +958,11 @@ if "Risk Prediction" in page:
                 paths  = np.zeros((n_sim, len(months)))
 
                 for sim in range(n_sim):
-                    bp_d   = np.random.normal(*deltas["trestbps_delta"])
-                    chol_d = np.random.normal(*deltas["chol_delta"])
-                    hr_d   = np.random.normal(*deltas["thalach_delta"])
-                    op_d   = np.random.normal(*deltas["oldpeak_delta"])
-                    lri_d  = np.random.normal(*deltas["lri_delta"])
+                    bp_d   = np.random.normal(*deltas.get("trestbps_delta", (0, 0.5)))
+                    chol_d = np.random.normal(*deltas.get("chol_delta",     (0, 1.0)))
+                    hr_d   = np.random.normal(*deltas.get("thalach_delta",  (0, 0.5)))
+                    op_d   = np.random.normal(*deltas.get("oldpeak_delta",  (0, 0.02)))
+                    lri_d  = np.random.normal(*deltas.get("lri_delta",      (0, 0.01)))
 
                     for mi, month in enumerate(months):
                         yr = month / 12.0
