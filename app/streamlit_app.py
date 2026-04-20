@@ -937,60 +937,69 @@ if "Risk Prediction" in page:
 
             np.random.seed(42)
 
-            def simulate_trajectory(base_features, scenario_key, n_sim, months):
+            # ── Capture all patient values for simulation ──────────
+            _base = {
+                "age": age, "sex": sex, "cp": cp,
+                "trestbps": trestbps, "chol": chol, "fbs": fbs,
+                "restecg": restecg, "thalach": thalach, "exang": exang,
+                "oldpeak": oldpeak, "slope": slope, "ca": ca, "thal": thal,
+                "lri_base": compute_lri(trestbps, chol, fbs, exang, oldpeak),
+                "risk_now": risk_prob,
+            }
+
+            def simulate_trajectory(base, scenario_key, n_sim, months,
+                                    _scaler=scaler, _model=xgb_model):
                 """
-                Monte Carlo simulation of risk trajectory.
-                Returns array [n_sim, len(months)] of risk probabilities.
+                Monte Carlo simulation — all patient variables passed explicitly
+                to avoid NameError from outer scope references.
                 """
                 deltas = PROGRESSION[scenario_key]
                 paths  = np.zeros((n_sim, len(months)))
 
                 for sim in range(n_sim):
-                    # Draw yearly progression rates for this simulation path
-                    bp_d    = np.random.normal(*deltas["trestbps_delta"])
-                    chol_d  = np.random.normal(*deltas["chol_delta"])
-                    hr_d    = np.random.normal(*deltas["thalach_delta"])
-                    op_d    = np.random.normal(*deltas["oldpeak_delta"])
-                    lri_d   = np.random.normal(*deltas["lri_delta"])
+                    bp_d   = np.random.normal(*deltas["trestbps_delta"])
+                    chol_d = np.random.normal(*deltas["chol_delta"])
+                    hr_d   = np.random.normal(*deltas["thalach_delta"])
+                    op_d   = np.random.normal(*deltas["oldpeak_delta"])
+                    lri_d  = np.random.normal(*deltas["lri_delta"])
 
                     for mi, month in enumerate(months):
                         yr = month / 12.0
 
-                        # Project biomarkers forward
-                        bp_t    = np.clip(trestbps   + bp_d   * yr, 90,  220)
-                        chol_t  = np.clip(chol       + chol_d * yr, 100, 600)
-                        hr_t    = np.clip(thalach    + hr_d   * yr, 60,  200)
-                        op_t    = np.clip(oldpeak    + op_d   * yr, 0,   6.2)
-                        lri_t   = np.clip(lri        + lri_d  * yr, 0,   1.0)
+                        bp_t   = float(np.clip(base["trestbps"] + bp_d   * yr, 90,  220))
+                        chol_t = float(np.clip(base["chol"]     + chol_d * yr, 100, 600))
+                        hr_t   = float(np.clip(base["thalach"]  + hr_d   * yr, 60,  202))
+                        op_t   = float(np.clip(base["oldpeak"]  + op_d   * yr, 0,   6.2))
 
                         # Recompute LRI from projected biomarkers
-                        lri_computed = compute_lri(bp_t, chol_t, fbs, exang, op_t)
-                        lri_t = np.clip(lri_computed + lri_d * yr * 0.3, 0, 1.0)
+                        lri_t = float(np.clip(
+                            compute_lri(bp_t, chol_t, base["fbs"],
+                                        base["exang"], op_t) + lri_d * yr * 0.3,
+                            0, 1.0))
 
-                        # Build feature vector (same order as training)
                         features_t = {
-                            "age":      age + yr,
-                            "sex":      sex,
-                            "cp":       cp,
-                            "trestbps": bp_t,
-                            "chol":     chol_t,
-                            "fbs":      fbs,
-                            "restecg":  restecg,
-                            "thalach":  hr_t,
-                            "exang":    exang,
-                            "oldpeak":  op_t,
-                            "slope":    slope,
-                            "ca":       ca,
-                            "thal":     thal,
-                            "lri":      lri_t,
+                            "age":                  base["age"] + yr,
+                            "sex":                  base["sex"],
+                            "cp":                   base["cp"],
+                            "trestbps":             bp_t,
+                            "chol":                 chol_t,
+                            "fbs":                  base["fbs"],
+                            "restecg":              base["restecg"],
+                            "thalach":              hr_t,
+                            "exang":                base["exang"],
+                            "oldpeak":              op_t,
+                            "slope":                base["slope"],
+                            "ca":                   base["ca"],
+                            "thal":                 base["thal"],
+                            "lifestyle_risk_index": lri_t,
                         }
 
                         X_t = pd.DataFrame([features_t])
                         try:
-                            X_scaled_t = scaler.transform(X_t)
-                            p = xgb_model.predict_proba(X_scaled_t)[0][1]
+                            X_s = _scaler.transform(X_t)
+                            p   = float(_model.predict_proba(X_s)[0][1])
                         except Exception:
-                            p = risk_prob  # fallback
+                            p   = float(base["risk_now"])
                         paths[sim, mi] = p
 
                 return paths
@@ -1000,7 +1009,7 @@ if "Risk Prediction" in page:
                 all_paths = {}
                 for scenario in PROGRESSION.keys():
                     all_paths[scenario] = simulate_trajectory(
-                        None, scenario, N_SIM, MONTHS)
+                        _base, scenario, N_SIM, MONTHS)
 
             # ── Plot ────────────────────────────────────────────────
             fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
