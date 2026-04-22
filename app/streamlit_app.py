@@ -741,7 +741,7 @@ with st.sidebar:
     st.markdown("<div style='text-align:center;margin:-8px 0 4px;'><span style='font-size:13px;font-weight:600;color:#0D1B2A;'>CardioAI</span></div>", unsafe_allow_html=True)
     st.caption("Explainable AI for Cardiovascular Risk & Patient Retention")
     st.divider()
-    page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","🔬 Medical Imaging","💊 Pharmaco-Intelligence","ℹ️ About"], label_visibility="collapsed")
+    page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","🔬 Medical Imaging","💊 Pharmaco-Intelligence","🏥 Operational Intelligence","ℹ️ About"], label_visibility="collapsed")
     st.divider()
     if get_secret("GOOGLE_API_KEY"):
         st.success("Gemini Vision: Ready")
@@ -2891,6 +2891,786 @@ Cover: appropriateness of current regimen for cardiac rehab, exercise-drug inter
                         )
                     except Exception as e:
                         st.error(f"Document generation error: {e}")
+
+
+# ══════════════════════════════════════════════════════════
+# PAGE 7 — OPERATIONAL INTELLIGENCE
+# ══════════════════════════════════════════════════════════
+
+elif "Operational Intelligence" in page:
+    st.title("🏥 Operational Intelligence")
+    st.caption(
+        "Real-time hospital operations monitoring — bed management, staffing optimisation, "
+        "patient flow, length of stay, fall risk tracking, EHR efficiency, and bottleneck detection "
+        "for JoiHealth Polyclinics."
+    )
+
+    import datetime as dt
+    import random
+
+    # ── persistent session state for all operational data ─────────
+    def init_ops_state():
+        if "ops_patients" not in st.session_state:
+            # Seed with 12 sample patients across both locations
+            np.random.seed(42)
+            random.seed(42)
+            now = dt.datetime.now()
+            locations = ["Old GRA Port Harcourt", "Ikoyi Lagos"]
+            departments = ["Cardiac Rehab", "Physical Medicine", "Physiotherapy",
+                           "Cardiology OPD", "Hydrotherapy", "Medical Spa"]
+            diagnoses_pool = ["Hypertension", "Post-MI Rehab", "Heart Failure",
+                              "Stroke Rehab", "Obesity", "Dyslipidaemia",
+                              "Osteoarthritis", "Back Pain", "COPD"]
+            statuses = ["Admitted", "In Session", "Waiting", "Pending Discharge", "Discharged Today"]
+
+            patients = []
+            for i in range(16):
+                admit_hours = random.randint(1, 72)
+                patients.append({
+                    "id":           f"JH-{2024+i:04d}",
+                    "name":         f"Patient {i+1}",
+                    "age":          random.randint(38, 82),
+                    "sex":          random.choice(["Male", "Female"]),
+                    "location":     random.choice(locations),
+                    "dept":         random.choice(departments),
+                    "diagnosis":    random.choice(diagnoses_pool),
+                    "admit_time":   (now - dt.timedelta(hours=admit_hours)).strftime("%Y-%m-%d %H:%M"),
+                    "los_hours":    admit_hours,
+                    "status":       random.choice(statuses),
+                    "bed":          f"Bed {i+1:02d}",
+                    "fall_risk":    random.choice(["Low", "Low", "Low", "Medium", "Medium", "High"]),
+                    "nurse":        random.choice(["Nurse Adaeze", "Nurse Emeka", "Nurse Fatima",
+                                                   "Nurse Chukwudi", "Nurse Blessing"]),
+                    "doctor":       random.choice(["Dr. Okafor", "Dr. Abiodun", "Dr. Nwosu",
+                                                   "Dr. Eze", "Dr. Adeyemi"]),
+                    "wait_mins":    random.randint(0, 45),
+                    "ehr_complete": random.choice([True, True, True, False]),
+                    "vitals_due":   random.choice([True, False, False, False]),
+                    "notes":        "",
+                })
+            st.session_state.ops_patients = patients
+
+        if "ops_incidents" not in st.session_state:
+            st.session_state.ops_incidents = []
+
+        if "ops_staff" not in st.session_state:
+            st.session_state.ops_staff = [
+                {"name": "Dr. Okafor",     "role": "Cardiologist",        "location": "Old GRA Port Harcourt", "shift": "08:00–17:00", "patients": 4, "utilisation": 85},
+                {"name": "Dr. Abiodun",    "role": "Physiatrist",         "location": "Old GRA Port Harcourt", "shift": "08:00–17:00", "patients": 3, "utilisation": 72},
+                {"name": "Dr. Nwosu",      "role": "Cardiologist",        "location": "Ikoyi Lagos",           "shift": "08:00–17:00", "patients": 5, "utilisation": 91},
+                {"name": "Dr. Eze",        "role": "Physiotherapist",     "location": "Old GRA Port Harcourt", "shift": "09:00–18:00", "patients": 6, "utilisation": 78},
+                {"name": "Dr. Adeyemi",    "role": "Sports Medicine",     "location": "Ikoyi Lagos",           "shift": "08:00–16:00", "patients": 4, "utilisation": 65},
+                {"name": "Nurse Adaeze",   "role": "Senior Nurse",        "location": "Old GRA Port Harcourt", "shift": "07:00–19:00", "patients": 5, "utilisation": 88},
+                {"name": "Nurse Emeka",    "role": "Cardiac Rehab Nurse", "location": "Old GRA Port Harcourt", "shift": "07:00–19:00", "patients": 4, "utilisation": 76},
+                {"name": "Nurse Fatima",   "role": "Senior Nurse",        "location": "Ikoyi Lagos",           "shift": "07:00–19:00", "patients": 5, "utilisation": 83},
+                {"name": "Nurse Chukwudi", "role": "Physiotherapy Asst",  "location": "Ikoyi Lagos",           "shift": "08:00–16:00", "patients": 4, "utilisation": 70},
+                {"name": "Nurse Blessing", "role": "Ward Nurse",          "location": "Old GRA Port Harcourt", "shift": "19:00–07:00", "patients": 6, "utilisation": 92},
+            ]
+
+    init_ops_state()
+    patients = st.session_state.ops_patients
+    staff    = st.session_state.ops_staff
+
+    # ── KPI SUMMARY CARDS ────────────────────────────────────────
+    active     = [p for p in patients if p["status"] != "Discharged Today"]
+    admitted   = [p for p in patients if p["status"] == "Admitted"]
+    waiting    = [p for p in patients if p["status"] == "Waiting"]
+    high_risk  = [p for p in patients if p["fall_risk"] == "High"]
+    ehr_gaps   = [p for p in patients if not p["ehr_complete"]]
+    vitals_due = [p for p in patients if p["vitals_due"]]
+    avg_los    = np.mean([p["los_hours"] for p in active]) if active else 0
+    avg_wait   = np.mean([p["wait_mins"] for p in waiting]) if waiting else 0
+    total_beds = 20
+    occupancy  = len(admitted) / total_beds * 100
+    overdue_ehr = len(ehr_gaps)
+
+    # Alert badges
+    alerts = []
+    if avg_wait > 30:      alerts.append(("⏱ Long Wait", "error",   f"Avg wait {avg_wait:.0f} min"))
+    if occupancy > 85:     alerts.append(("🛏 High Occupancy", "warning", f"{occupancy:.0f}% beds occupied"))
+    if high_risk:          alerts.append(("⚠ Fall Risk", "error",   f"{len(high_risk)} high-risk patient(s)"))
+    if overdue_ehr:        alerts.append(("📋 EHR Gap", "warning",  f"{overdue_ehr} incomplete record(s)"))
+    if vitals_due:         alerts.append(("💊 Vitals Due", "warning", f"{len(vitals_due)} patient(s)"))
+    overcapacity = [s for s in staff if s["utilisation"] > 90]
+    if overcapacity:       alerts.append(("👩‍⚕️ Staff Overload", "error", f"{len(overcapacity)} staff >90% utilisation"))
+
+    if alerts:
+        alert_cols = st.columns(len(alerts))
+        for col, (label, severity, detail) in zip(alert_cols, alerts):
+            with col:
+                getattr(st, severity)(f"**{label}**\n{detail}")
+
+    st.divider()
+
+    # ── METRIC CARDS ROW ─────────────────────────────────────────
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1.metric("Active Patients",   len(active))
+    m2.metric("Bed Occupancy",     f"{occupancy:.0f}%",    delta=f"{'High' if occupancy>85 else 'Normal'}", delta_color="inverse" if occupancy>85 else "normal")
+    m3.metric("Avg Wait (min)",    f"{avg_wait:.0f}",       delta=f"{'Over target' if avg_wait>20 else 'On target'}", delta_color="inverse" if avg_wait>20 else "normal")
+    m4.metric("Avg LOS (hrs)",     f"{avg_los:.1f}",        delta="Target: <48h")
+    m5.metric("Fall Risk (High)",  len(high_risk),          delta_color="inverse")
+    m6.metric("EHR Gaps",          overdue_ehr,             delta_color="inverse")
+
+    st.divider()
+
+    # ── MAIN TABS ─────────────────────────────────────────────────
+    ops_tab1, ops_tab2, ops_tab3, ops_tab4, ops_tab5, ops_tab6, ops_tab7 = st.tabs([
+        "🛏 Bed Management",
+        "👥 Staffing",
+        "⏱ Patient Flow & Bottlenecks",
+        "⚠ Fall Risk Tracker",
+        "📋 EHR Completeness",
+        "📊 LOT & LOS Analytics",
+        "🤖 AI Operations Advisor",
+    ])
+
+    # ════════════════════════════════════════════════════════
+    # TAB 1 — BED MANAGEMENT
+    # ════════════════════════════════════════════════════════
+    with ops_tab1:
+        st.subheader("Real-Time Bed Management")
+        loc_filter = st.selectbox("Location:", ["All", "Old GRA Port Harcourt", "Ikoyi Lagos"], key="bed_loc")
+
+        filtered = patients if loc_filter == "All" else [p for p in patients if p["location"] == loc_filter]
+
+        # Bed grid visualisation
+        st.markdown("**Bed Status Grid**")
+        status_colors = {
+            "Admitted":           ("🔴", "Occupied"),
+            "In Session":         ("🟡", "In Session"),
+            "Waiting":            ("🟠", "Waiting"),
+            "Pending Discharge":  ("🟢", "Ready"),
+            "Discharged Today":   ("⚪", "Available"),
+        }
+
+        bed_cols = st.columns(5)
+        for i, p in enumerate(filtered[:20]):
+            with bed_cols[i % 5]:
+                icon, label = status_colors.get(p["status"], ("⚫", "Unknown"))
+                risk_icon = "⚠" if p["fall_risk"] == "High" else ("〰" if p["fall_risk"] == "Medium" else "")
+                st.markdown(
+                    f"**{icon} {p['bed']}** {risk_icon}\n"
+                    f"<small>{p['id']} | {p['diagnosis'][:18]}\n"
+                    f"LOS: {p['los_hours']}h | {p['status']}</small>",
+                    unsafe_allow_html=True
+                )
+
+        # Legend
+        st.caption("🔴 Occupied  🟡 In Session  🟠 Waiting  🟢 Pending Discharge  ⚪ Available  ⚠ Fall Risk")
+
+        st.divider()
+
+        # Discharge planning
+        st.subheader("Discharge Planning Queue")
+        discharge_ready = [p for p in filtered if p["status"] == "Pending Discharge"]
+        if discharge_ready:
+            for p in discharge_ready:
+                c1, c2, c3 = st.columns([3, 2, 1])
+                with c1:
+                    st.write(f"**{p['id']}** — {p['diagnosis']} | LOS: {p['los_hours']}h | {p['doctor']}")
+                with c2:
+                    st.write(f"EHR: {'✅ Complete' if p['ehr_complete'] else '❌ Incomplete'}")
+                with c3:
+                    if st.button("Discharge", key=f"disc_{p['id']}"):
+                        p["status"] = "Discharged Today"
+                        st.success(f"{p['id']} discharged. Bed {p['bed']} now available.")
+                        st.rerun()
+        else:
+            st.info("No patients currently pending discharge.")
+
+        st.divider()
+
+        # Add new patient
+        with st.expander("➕ Admit New Patient"):
+            nc1, nc2, nc3 = st.columns(3)
+            with nc1:
+                new_id   = st.text_input("Patient ID", value=f"JH-{len(patients)+2025:04d}", key="new_id")
+                new_diag = st.text_input("Diagnosis", key="new_diag")
+            with nc2:
+                new_dept = st.selectbox("Department", ["Cardiac Rehab", "Physical Medicine",
+                    "Physiotherapy", "Cardiology OPD", "Hydrotherapy"], key="new_dept")
+                new_loc  = st.selectbox("Location", ["Old GRA Port Harcourt", "Ikoyi Lagos"], key="new_loc")
+            with nc3:
+                new_risk = st.selectbox("Fall Risk", ["Low", "Medium", "High"], key="new_risk")
+                new_age  = st.number_input("Age", 18, 100, 55, key="new_age")
+
+            if st.button("Admit Patient", type="primary", key="btn_admit"):
+                next_bed = f"Bed {len([p for p in patients if p['status']=='Admitted'])+1:02d}"
+                patients.append({
+                    "id":          new_id, "name": new_id, "age": new_age,
+                    "sex":         "Unknown", "location": new_loc,
+                    "dept":        new_dept, "diagnosis": new_diag or "Pending",
+                    "admit_time":  dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "los_hours":   0, "status": "Admitted", "bed": next_bed,
+                    "fall_risk":   new_risk, "nurse": "Nurse Adaeze",
+                    "doctor":      "Dr. Okafor", "wait_mins": 0,
+                    "ehr_complete": False, "vitals_due": True, "notes": "",
+                })
+                st.session_state.ops_patients = patients
+                st.success(f"Patient {new_id} admitted to {next_bed}")
+                st.rerun()
+
+    # ════════════════════════════════════════════════════════
+    # TAB 2 — STAFFING OPTIMISATION
+    # ════════════════════════════════════════════════════════
+    with ops_tab2:
+        st.subheader("Staffing Efficiency Dashboard")
+
+        # Utilisation chart
+        import matplotlib.pyplot as plt
+
+        fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
+        fig.patch.set_facecolor("#0D1B2A")
+        for ax in axes:
+            ax.set_facecolor("#111927")
+            ax.tick_params(colors="white")
+            for sp in ax.spines.values(): sp.set_color("#2C3E50")
+
+        names  = [s["name"].split()[-1] for s in staff]
+        utils  = [s["utilisation"] for s in staff]
+        colors = ["#E63946" if u > 90 else ("#FFB703" if u > 80 else "#06D6A0") for u in utils]
+
+        axes[0].barh(range(len(names)), utils, color=colors, height=0.6)
+        axes[0].set_yticks(range(len(names)))
+        axes[0].set_yticklabels(names, color="white", fontsize=9)
+        axes[0].axvline(80, color="#FFB703", ls="--", lw=1, alpha=0.6, label="80% target")
+        axes[0].axvline(90, color="#E63946", ls="--", lw=1, alpha=0.6, label="90% warning")
+        axes[0].set_xlim(0, 110)
+        axes[0].set_title("Staff Utilisation %", color="white", fontsize=11)
+        axes[0].legend(fontsize=8, facecolor="#1A2A3A", labelcolor="white")
+        for i, u in enumerate(utils):
+            axes[0].text(u + 1, i, f"{u}%", va="center", color="white", fontsize=8)
+
+        # Patients per staff member
+        pts = [s["patients"] for s in staff]
+        roles = [s["role"].split()[0] for s in staff]
+        pc = ["#00B4D8" if r in ["Cardiologist","Physiatrist","Sports"] else "#7B2FBE" for r in roles]
+        axes[1].bar(range(len(names)), pts, color=pc, width=0.6)
+        axes[1].set_xticks(range(len(names)))
+        axes[1].set_xticklabels(names, color="white", fontsize=8, rotation=30, ha="right")
+        axes[1].axhline(5, color="#FFB703", ls="--", lw=1, alpha=0.6, label="Recommended max")
+        axes[1].set_title("Patients per Staff Member", color="white", fontsize=11)
+        axes[1].tick_params(colors="white")
+        axes[1].legend(fontsize=8, facecolor="#1A2A3A", labelcolor="white")
+
+        plt.tight_layout(pad=2)
+        st.pyplot(fig)
+        plt.close()
+
+        st.divider()
+        st.subheader("Staff Schedule & Current Load")
+
+        loc_filt_staff = st.selectbox("Filter by location:", ["All","Old GRA Port Harcourt","Ikoyi Lagos"], key="staff_loc")
+        filtered_staff = staff if loc_filt_staff == "All" else [s for s in staff if s["location"] == loc_filt_staff]
+
+        staff_df_data = []
+        for s in filtered_staff:
+            overloaded = s["utilisation"] > 90
+            staff_df_data.append({
+                "Name":        s["name"],
+                "Role":        s["role"],
+                "Location":    s["location"],
+                "Shift":       s["shift"],
+                "Patients":    s["patients"],
+                "Utilisation": f"{s['utilisation']}% {'🔴' if overloaded else ('🟡' if s['utilisation']>80 else '🟢')}",
+                "Status":      "⚠ Overloaded" if overloaded else "✅ Normal",
+            })
+        st.dataframe(pd.DataFrame(staff_df_data), use_container_width=True, hide_index=True)
+
+        # Recommendations
+        overloaded_staff = [s for s in staff if s["utilisation"] > 90]
+        if overloaded_staff:
+            st.divider()
+            st.markdown("**⚠ Staffing Recommendations:**")
+            for s in overloaded_staff:
+                st.error(
+                    f"**{s['name']}** ({s['role']}) at {s['utilisation']}% utilisation — "
+                    f"{s['patients']} patients. Consider redistributing 1–2 patients "
+                    f"to lower-utilisation staff or scheduling relief cover."
+                )
+
+        # Add shift / on-call logging
+        with st.expander("📋 Log Shift Change / Handover"):
+            hc1, hc2 = st.columns(2)
+            with hc1:
+                handover_from = st.selectbox("Handover FROM:", [s["name"] for s in staff], key="ho_from")
+                handover_to   = st.selectbox("Handover TO:",   [s["name"] for s in staff], key="ho_to")
+            with hc2:
+                handover_notes = st.text_area("Handover notes / outstanding tasks:", height=80, key="ho_notes")
+            if st.button("Log Handover", key="btn_handover"):
+                st.success(f"Handover logged: {handover_from} → {handover_to} at {dt.datetime.now().strftime('%H:%M')}")
+
+    # ════════════════════════════════════════════════════════
+    # TAB 3 — PATIENT FLOW & BOTTLENECKS
+    # ════════════════════════════════════════════════════════
+    with ops_tab3:
+        st.subheader("Patient Flow & Bottleneck Detection")
+
+        # Flow stages simulation
+        flow_data = {
+            "Registration":      random.randint(2, 8),
+            "Triage/Assessment": random.randint(5, 18),
+            "Waiting for Bed":   random.randint(1, 12),
+            "In Treatment":      random.randint(8, 16),
+            "Awaiting Review":   random.randint(3, 10),
+            "Pending Discharge": len([p for p in patients if p["status"]=="Pending Discharge"]),
+            "Discharge Process": random.randint(1, 5),
+        }
+
+        # Target wait times (minutes)
+        targets = {
+            "Registration":      5,
+            "Triage/Assessment": 15,
+            "Waiting for Bed":   10,
+            "In Treatment":      60,
+            "Awaiting Review":   20,
+            "Pending Discharge": 30,
+            "Discharge Process": 20,
+        }
+
+        fig2, ax = plt.subplots(figsize=(13, 4))
+        fig2.patch.set_facecolor("#0D1B2A")
+        ax.set_facecolor("#111927")
+        ax.tick_params(colors="white")
+        for sp in ax.spines.values(): sp.set_color("#2C3E50")
+
+        stages = list(flow_data.keys())
+        values = list(flow_data.values())
+        tvals  = [targets[s] for s in stages]
+        bcolors = ["#E63946" if v > t*1.5 else ("#FFB703" if v > t else "#06D6A0")
+                   for v, t in zip(values, tvals)]
+
+        x = range(len(stages))
+        bars = ax.bar(x, values, color=bcolors, width=0.55, label="Current avg wait (min)")
+        ax.plot(x, tvals, "o--", color="#00B4D8", lw=1.5, ms=6, label="Target")
+        ax.set_xticks(list(x))
+        ax.set_xticklabels([s.replace(" ", "\n") for s in stages], color="white", fontsize=8.5)
+        ax.set_ylabel("Minutes / Patients", color="white")
+        ax.set_title("Patient Flow — Wait Times vs Targets (Red = Bottleneck)", color="white", fontsize=12)
+        ax.legend(fontsize=9, facecolor="#1A2A3A", labelcolor="white")
+        for bar, val in zip(bars, values):
+            ax.text(bar.get_x()+bar.get_width()/2, bar.get_height()+0.3, str(val),
+                    ha="center", color="white", fontsize=9, fontweight="bold")
+        plt.tight_layout()
+        st.pyplot(fig2)
+        plt.close()
+
+        # Bottleneck identification
+        bottlenecks = [(s, v, targets[s]) for s, v in flow_data.items() if v > targets[s]*1.5]
+        if bottlenecks:
+            st.divider()
+            st.markdown("**🚨 Active Bottlenecks Detected:**")
+            for stage, actual, target in bottlenecks:
+                excess = actual - target
+                st.error(
+                    f"**{stage}** — {actual} min average (target: {target} min) | "
+                    f"+{excess} min excess | "
+                    f"Action: {'Add triage staff' if 'Triage' in stage else 'Expedite bed turnover' if 'Bed' in stage else 'Review discharge criteria' if 'Discharge' in stage else 'Redistribute workload'}"
+                )
+        else:
+            st.success("✅ No bottlenecks detected — patient flow within target parameters.")
+
+        # Today's throughput
+        st.divider()
+        st.markdown("**Today's Throughput Summary:**")
+        t1, t2, t3, t4 = st.columns(4)
+        t1.metric("Patients Seen Today",    random.randint(18, 32))
+        t2.metric("Avg Door-to-Treatment",  f"{random.randint(12, 28)} min", delta="Target: <20 min")
+        t3.metric("Discharges Today",       len([p for p in patients if p["status"]=="Discharged Today"]))
+        t4.metric("Appointments Cancelled", random.randint(0, 4), delta_color="inverse")
+
+    # ════════════════════════════════════════════════════════
+    # TAB 4 — FALL RISK TRACKER
+    # ════════════════════════════════════════════════════════
+    with ops_tab4:
+        st.subheader("Patient Fall Risk Tracker")
+        st.caption("Tracks fall risk level, prevention interventions, and incident logging for all active patients.")
+
+        # Fall risk summary
+        low_risk    = [p for p in patients if p["fall_risk"] == "Low"    and p["status"] != "Discharged Today"]
+        medium_risk = [p for p in patients if p["fall_risk"] == "Medium" and p["status"] != "Discharged Today"]
+        high_risk_p = [p for p in patients if p["fall_risk"] == "High"   and p["status"] != "Discharged Today"]
+
+        fr1, fr2, fr3 = st.columns(3)
+        with fr1:
+            st.success(f"🟢 Low Risk: **{len(low_risk)} patients**")
+        with fr2:
+            st.warning(f"🟡 Medium Risk: **{len(medium_risk)} patients**")
+        with fr3:
+            if high_risk_p:
+                st.error(f"🔴 High Risk: **{len(high_risk_p)} patients** — Immediate precautions required")
+            else:
+                st.info("🔴 High Risk: 0 patients")
+
+        st.divider()
+
+        # HIGH RISK PATIENTS — immediate action panel
+        if high_risk_p:
+            st.markdown("### 🔴 High Risk Patients — Action Required")
+            for p in high_risk_p:
+                with st.expander(f"⚠ {p['id']} — {p['diagnosis']} | {p['dept']} | {p['nurse']}", expanded=True):
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.markdown(f"**Age:** {p['age']} | **Sex:** {p['sex']}")
+                        st.markdown(f"**Location:** {p['location']} | **Bed:** {p['bed']}")
+                        st.markdown(f"**LOS:** {p['los_hours']}h | **Doctor:** {p['doctor']}")
+                    with col_b:
+                        st.markdown("**Required precautions checklist:**")
+                        checks = [
+                            "Bed rails raised and locked",
+                            "Non-slip footwear issued",
+                            "Call bell within reach",
+                            "Fall risk wristband applied",
+                            "Environment cleared of hazards",
+                            "Nurse station notified",
+                        ]
+                        for ch in checks:
+                            st.checkbox(ch, key=f"fr_{p['id']}_{ch[:10]}")
+
+                    fall_notes = st.text_area("Intervention notes:", key=f"fn_{p['id']}", height=60)
+                    if st.button("Mark Precautions Complete", key=f"fp_{p['id']}"):
+                        p["fall_risk"] = "Medium"
+                        st.success("Precautions logged. Risk level updated to Medium.")
+                        st.rerun()
+
+        # MEDIUM RISK
+        if medium_risk:
+            st.divider()
+            st.markdown("### 🟡 Medium Risk Patients — Monitor Closely")
+            medium_df = pd.DataFrame([{
+                "ID": p["id"], "Dept": p["dept"], "Age": p["age"],
+                "Diagnosis": p["diagnosis"], "Nurse": p["nurse"],
+                "LOS (hrs)": p["los_hours"], "Bed": p["bed"]
+            } for p in medium_risk])
+            st.dataframe(medium_df, use_container_width=True, hide_index=True)
+
+        # Incident logging
+        st.divider()
+        st.subheader("🚨 Log a Fall Incident")
+        with st.form("fall_incident_form"):
+            fi1, fi2 = st.columns(2)
+            with fi1:
+                inc_patient  = st.selectbox("Patient:", [p["id"] for p in active] if active else ["None"], key="fi_pt")
+                inc_time     = st.text_input("Time of incident:", value=dt.datetime.now().strftime("%H:%M"), key="fi_time")
+                inc_location = st.text_input("Location in facility:", key="fi_loc", placeholder="e.g. Physiotherapy gym")
+            with fi2:
+                inc_severity = st.selectbox("Severity:", ["Minor — no injury", "Moderate — minor injury", "Major — significant injury", "Critical — emergency"], key="fi_sev")
+                inc_witness  = st.text_input("Witnessed by:", key="fi_wit")
+            inc_description = st.text_area("Description of incident:", height=80, key="fi_desc")
+            inc_action      = st.text_area("Immediate action taken:", height=60, key="fi_act")
+
+            submitted = st.form_submit_button("📋 Submit Incident Report", type="primary")
+            if submitted:
+                st.session_state.ops_incidents.append({
+                    "datetime":    f"{dt.date.today()} {inc_time}",
+                    "patient":     inc_patient,
+                    "severity":    inc_severity,
+                    "location":    inc_location,
+                    "description": inc_description,
+                    "action":      inc_action,
+                    "witness":     inc_witness,
+                    "status":      "Open",
+                })
+                st.success("Fall incident report submitted and logged.")
+
+        # Incident log
+        if st.session_state.ops_incidents:
+            st.divider()
+            st.markdown("**Incident Log (This Session):**")
+            st.dataframe(pd.DataFrame(st.session_state.ops_incidents), use_container_width=True, hide_index=True)
+
+    # ════════════════════════════════════════════════════════
+    # TAB 5 — EHR COMPLETENESS
+    # ════════════════════════════════════════════════════════
+    with ops_tab5:
+        st.subheader("EHR Completeness & Documentation Quality")
+        st.caption("Track missing documentation, overdue vitals, and record completeness across all active patients.")
+
+        total_active = len(active)
+        complete_ehr = len([p for p in active if p["ehr_complete"]])
+        ehr_pct      = complete_ehr / total_active * 100 if total_active > 0 else 0
+
+        e1, e2, e3, e4 = st.columns(4)
+        e1.metric("EHR Completeness",    f"{ehr_pct:.0f}%", delta=f"Target: >95%", delta_color="normal" if ehr_pct >= 95 else "inverse")
+        e2.metric("Incomplete Records",  len(ehr_gaps))
+        e3.metric("Vitals Overdue",      len(vitals_due))
+        e4.metric("Discharge Summaries", f"{random.randint(85,98)}%", delta="completed today")
+
+        if ehr_pct < 95:
+            st.warning(f"⚠ EHR completeness at {ehr_pct:.0f}% — below 95% target. Review incomplete records below.")
+
+        st.divider()
+
+        # EHR gaps table
+        if ehr_gaps:
+            st.markdown("**Incomplete EHR Records — Action Required:**")
+            for p in ehr_gaps:
+                missing_items = []
+                if not p["ehr_complete"]:
+                    missing_items = random.sample([
+                        "Admission assessment", "Drug reconciliation",
+                        "Consent form", "Allergy documentation",
+                        "Nursing assessment", "Physiotherapy notes",
+                        "Discharge criteria set", "Care plan updated"
+                    ], k=random.randint(1, 3))
+
+                with st.expander(f"📋 {p['id']} — {p['dept']} | {p['doctor']}"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown(f"**Patient:** {p['id']} | Age {p['age']} | {p['diagnosis']}")
+                        st.markdown(f"**Admitted:** {p['admit_time']}")
+                        st.markdown("**Missing documentation:**")
+                        for item in missing_items:
+                            st.markdown(f"  ❌ {item}")
+                    with c2:
+                        st.markdown(f"**Responsible clinician:** {p['doctor']}")
+                        st.markdown(f"**Nurse:** {p['nurse']}")
+                        note = st.text_area("Add documentation note:", key=f"ehr_{p['id']}", height=60)
+                        if st.button("Mark EHR Complete", key=f"ehr_btn_{p['id']}"):
+                            p["ehr_complete"] = True
+                            st.success(f"EHR for {p['id']} marked complete.")
+                            st.rerun()
+        else:
+            st.success("✅ All active patient EHRs are complete.")
+
+        # Vitals overdue
+        if vitals_due:
+            st.divider()
+            st.markdown("**⏰ Vitals Overdue:**")
+            for p in vitals_due:
+                c1, c2, c3 = st.columns([3, 2, 1])
+                with c1:
+                    st.warning(f"**{p['id']}** — {p['diagnosis']} | {p['nurse']}")
+                with c2:
+                    st.write(f"Bed {p['bed']} | LOS {p['los_hours']}h")
+                with c3:
+                    if st.button("Log Vitals", key=f"vit_{p['id']}"):
+                        p["vitals_due"] = False
+                        st.success("Vitals logged.")
+                        st.rerun()
+
+    # ════════════════════════════════════════════════════════
+    # TAB 6 — LOT & LOS ANALYTICS
+    # ════════════════════════════════════════════════════════
+    with ops_tab6:
+        st.subheader("Length of Treatment (LOT) & Length of Stay (LOS) Analytics")
+        st.caption("Analyse patient throughput, LOT targets by condition, and identify extended stay outliers.")
+
+        # LOS by diagnosis
+        diag_los = {}
+        for p in active:
+            d = p["diagnosis"]
+            if d not in diag_los:
+                diag_los[d] = []
+            diag_los[d].append(p["los_hours"])
+
+        avg_los_by_diag = {d: np.mean(v) for d, v in diag_los.items()}
+
+        # Target LOS by condition (hours) — cardiac rehab benchmarks
+        lot_targets = {
+            "Post-MI Rehab":    48, "Heart Failure":  72, "Hypertension":    24,
+            "Stroke Rehab":     96, "Obesity":         36, "Dyslipidaemia":   24,
+            "Osteoarthritis":   48, "Back Pain":        24, "COPD":            48,
+        }
+
+        fig3, axes3 = plt.subplots(1, 2, figsize=(13, 4.5))
+        fig3.patch.set_facecolor("#0D1B2A")
+        for ax in axes3:
+            ax.set_facecolor("#111927")
+            ax.tick_params(colors="white")
+            for sp in ax.spines.values(): sp.set_color("#2C3E50")
+
+        # LOS by diagnosis bar
+        diags  = list(avg_los_by_diag.keys())
+        avgs   = [avg_los_by_diag[d] for d in diags]
+        tgts   = [lot_targets.get(d, 36) for d in diags]
+        bclrs  = ["#E63946" if a > t*1.2 else ("#FFB703" if a > t else "#06D6A0")
+                  for a, t in zip(avgs, tgts)]
+
+        x3 = range(len(diags))
+        axes3[0].bar(x3, avgs, color=bclrs, width=0.55, label="Actual avg LOS (hrs)")
+        axes3[0].plot(x3, tgts, "o--", color="#00B4D8", lw=1.5, ms=5, label="Target LOS")
+        axes3[0].set_xticks(list(x3))
+        axes3[0].set_xticklabels([d[:12] for d in diags], color="white", fontsize=7.5,
+                                  rotation=30, ha="right")
+        axes3[0].set_ylabel("Hours", color="white")
+        axes3[0].set_title("Avg LOS by Diagnosis vs Target", color="white", fontsize=11)
+        axes3[0].legend(fontsize=8, facecolor="#1A2A3A", labelcolor="white")
+
+        # LOS distribution histogram
+        los_all = [p["los_hours"] for p in active]
+        axes3[1].hist(los_all, bins=8, color="#00B4D8", edgecolor="#0D1B2A", alpha=0.85)
+        axes3[1].axvline(np.mean(los_all), color="#FFB703", lw=2, ls="--",
+                         label=f"Mean: {np.mean(los_all):.1f}h")
+        axes3[1].axvline(48, color="#E63946", lw=1.5, ls=":", label="48h target", alpha=0.8)
+        axes3[1].set_xlabel("Length of Stay (hours)", color="white")
+        axes3[1].set_ylabel("Number of Patients", color="white")
+        axes3[1].set_title("LOS Distribution — All Active Patients", color="white", fontsize=11)
+        axes3[1].legend(fontsize=8, facecolor="#1A2A3A", labelcolor="white")
+
+        plt.tight_layout(pad=2)
+        st.pyplot(fig3)
+        plt.close()
+
+        # Extended stay outliers
+        st.divider()
+        st.markdown("**Extended Stay Outliers (LOS > Target × 1.5):**")
+        outliers = [p for p in active if p["los_hours"] > lot_targets.get(p["diagnosis"], 36) * 1.5]
+        if outliers:
+            out_df = pd.DataFrame([{
+                "ID":          p["id"],
+                "Diagnosis":   p["diagnosis"],
+                "Actual LOS":  f"{p['los_hours']}h",
+                "Target LOS":  f"{lot_targets.get(p['diagnosis'], 36)}h",
+                "Excess":      f"+{p['los_hours'] - lot_targets.get(p['diagnosis'],36)}h",
+                "Doctor":      p["doctor"],
+                "Status":      p["status"],
+            } for p in outliers])
+            st.dataframe(out_df, use_container_width=True, hide_index=True)
+            st.warning(f"⚠ {len(outliers)} patient(s) exceeding target LOS. Review discharge readiness.")
+        else:
+            st.success("✅ All patients within target LOS parameters.")
+
+        # LOT metrics
+        st.divider()
+        l1, l2, l3, l4 = st.columns(4)
+        l1.metric("Mean LOS (all)",       f"{np.mean([p['los_hours'] for p in active]):.1f}h", delta="Target: <48h")
+        l2.metric("Median LOS",           f"{np.median([p['los_hours'] for p in active]):.1f}h")
+        l3.metric(">48h Stays",           len([p for p in active if p["los_hours"] > 48]))
+        l4.metric("30-Day Readmissions",  f"{random.randint(4, 12)}%",  delta="Target: <8%")
+
+    # ════════════════════════════════════════════════════════
+    # TAB 7 — AI OPERATIONS ADVISOR
+    # ════════════════════════════════════════════════════════
+    with ops_tab7:
+        st.subheader("AI Operations Advisor")
+        st.caption(
+            "Gemini AI analyses the current operational state and generates specific, "
+            "actionable recommendations for JoiHealth management."
+        )
+
+        # Build operational context summary
+        ops_summary = f"""
+JoiHealth Polyclinics — Real-Time Operational Status Report
+Date/Time: {dt.datetime.now().strftime('%d %B %Y, %H:%M')}
+Locations: Old GRA Port Harcourt + Ikoyi Lagos
+
+PATIENT STATUS:
+- Total active patients: {len(active)}
+- Bed occupancy: {occupancy:.0f}% (Total beds: {total_beds})
+- Patients waiting: {len(waiting)} (avg wait: {avg_wait:.0f} min)
+- Average LOS: {avg_los:.1f} hours
+- Pending discharge: {len([p for p in patients if p['status']=='Pending Discharge'])}
+- High fall-risk patients: {len(high_risk_p)}
+- Incomplete EHR records: {overdue_ehr}
+- Vitals overdue: {len(vitals_due)}
+
+STAFFING:
+- Total staff on duty: {len(staff)}
+- Staff >90% utilisation: {len(overcapacity)}
+- Departments: Cardiac Rehab, Physical Medicine, Physiotherapy, Cardiology OPD
+
+FLOW:
+- Active bottlenecks: {len(bottlenecks)} ({', '.join([b[0] for b in bottlenecks]) if bottlenecks else 'None'})
+- Today's discharges: {len([p for p in patients if p['status']=='Discharged Today'])}
+
+QUALITY:
+- EHR completeness: {ehr_pct:.0f}%
+- Incidents this session: {len(st.session_state.ops_incidents)}
+"""
+
+        st.text(ops_summary)
+        st.divider()
+
+        query = st.text_area(
+            "Ask the AI Operations Advisor a specific question:",
+            placeholder=(
+                "e.g. 'What are the top 3 priorities to reduce patient wait times today?' "
+                "or 'How should we redistribute staff given current load?' "
+                "or 'What bottlenecks are most likely to impact afternoon clinic?' "
+                "or 'Generate a management briefing for this morning's status'"
+            ),
+            height=80, key="ops_ai_query"
+        )
+
+        auto_briefing = st.checkbox("Auto-generate full management briefing", key="auto_brief")
+
+        if st.button("🤖 Get AI Recommendations", type="primary", use_container_width=True, key="btn_ops_ai"):
+            if not get_secret("GOOGLE_API_KEY"):
+                st.error("GOOGLE_API_KEY required. Add to Streamlit secrets.")
+            else:
+                with st.spinner("AI analysing operational state..."):
+                    try:
+                        import google.generativeai as genai
+                        genai.configure(api_key=get_secret("GOOGLE_API_KEY"))
+                        model_ai = genai.GenerativeModel("gemini-2.0-flash")
+
+                        if auto_briefing or not query.strip():
+                            prompt_text = f"""You are the chief operations advisor for JoiHealth Polyclinics, Nigeria's premier physical medicine and cardiac rehabilitation centre with locations in Old GRA Port Harcourt and Ikoyi Lagos.
+
+Here is the current real-time operational status:
+{ops_summary}
+
+Generate a comprehensive Morning Management Briefing covering:
+
+1. EXECUTIVE SUMMARY (2 sentences — overall status: green/amber/red and why)
+
+2. IMMEDIATE PRIORITIES (top 3 actions needed in the next 2 hours, specific and actionable)
+
+3. BED MANAGEMENT RECOMMENDATIONS (specific actions to optimise occupancy and patient flow)
+
+4. STAFFING RECOMMENDATIONS (who is overloaded, how to redistribute, any gaps to fill)
+
+5. PATIENT SAFETY ALERTS (fall risk, overdue vitals, EHR gaps — specific patients and actions)
+
+6. BOTTLENECK RESOLUTION PLAN (which bottlenecks to address first and how)
+
+7. END-OF-SHIFT GOALS (what should be achieved by 18:00 today)
+
+Be specific to JoiHealth's context as a cardiac rehab and physical medicine polyclinic. Use clinical and operational language appropriate for a medical director briefing. Format with clear numbered sections."""
+                        else:
+                            prompt_text = f"""You are the chief operations advisor for JoiHealth Polyclinics.
+
+Current operational status:
+{ops_summary}
+
+Answer this specific question from management:
+{query}
+
+Be specific, actionable, and concise. Reference the actual data from the operational status above. Recommend specific steps with timelines where relevant."""
+
+                        response = model_ai.generate_content(prompt_text)
+                        st.divider()
+                        st.markdown("### AI Operations Advisor Response")
+                        st.markdown(response.text)
+
+                        # Download option
+                        st.download_button(
+                            "⬇ Download Briefing",
+                            response.text,
+                            file_name=f"ops_briefing_{dt.datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                            mime="text/plain"
+                        )
+                    except Exception as e:
+                        st.error(f"AI error: {e}")
+
+        # Quick AI queries
+        st.divider()
+        st.markdown("**Quick AI Queries:**")
+        qc1, qc2, qc3 = st.columns(3)
+        with qc1:
+            if st.button("📊 Bottleneck Analysis", use_container_width=True, key="q1"):
+                st.session_state["ops_ai_query"] = "Analyse the current bottlenecks in patient flow and recommend specific interventions to reduce wait times in the next 4 hours."
+                st.rerun()
+        with qc2:
+            if st.button("👥 Staff Rebalancing Plan", use_container_width=True, key="q2"):
+                st.session_state["ops_ai_query"] = "Given the current staffing utilisation, recommend how to rebalance patient assignments to prevent burnout and maintain quality of care."
+                st.rerun()
+        with qc3:
+            if st.button("🛏 Discharge Acceleration", use_container_width=True, key="q3"):
+                st.session_state["ops_ai_query"] = "Which patients should be prioritised for discharge today and what are the specific steps to accelerate the discharge process?"
+                st.rerun()
+
 
 elif "About" in page:
     st.title("ℹ️ About CardioAI")
