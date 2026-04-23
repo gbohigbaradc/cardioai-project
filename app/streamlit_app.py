@@ -2939,10 +2939,8 @@ elif "Operational Intelligence" in page:
                     "status":       random.choice(statuses),
                     "bed":          f"Bed {i+1:02d}",
                     "fall_risk":    random.choice(["Low", "Low", "Low", "Medium", "Medium", "High"]),
-                    "nurse":        random.choice(["Nurse Adaeze", "Nurse Emeka", "Nurse Fatima",
-                                                   "Nurse Chukwudi", "Nurse Blessing"]),
-                    "doctor":       random.choice(["Dr. Okafor", "Dr. Abiodun", "Dr. Nwosu",
-                                                   "Dr. Eze", "Dr. Adeyemi"]),
+                    "nurse":        "Unassigned",
+                    "doctor":       "Unassigned",
                     "wait_mins":    random.randint(0, 45),
                     "ehr_complete": random.choice([True, True, True, False]),
                     "vitals_due":   random.choice([True, False, False, False]),
@@ -2954,18 +2952,8 @@ elif "Operational Intelligence" in page:
             st.session_state.ops_incidents = []
 
         if "ops_staff" not in st.session_state:
-            st.session_state.ops_staff = [
-                {"name": "Dr. Okafor",     "role": "Cardiologist",        "location": "Old GRA Port Harcourt", "shift": "08:00–17:00", "patients": 4, "utilisation": 85},
-                {"name": "Dr. Abiodun",    "role": "Physiatrist",         "location": "Old GRA Port Harcourt", "shift": "08:00–17:00", "patients": 3, "utilisation": 72},
-                {"name": "Dr. Nwosu",      "role": "Cardiologist",        "location": "Ikoyi Lagos",           "shift": "08:00–17:00", "patients": 5, "utilisation": 91},
-                {"name": "Dr. Eze",        "role": "Physiotherapist",     "location": "Old GRA Port Harcourt", "shift": "09:00–18:00", "patients": 6, "utilisation": 78},
-                {"name": "Dr. Adeyemi",    "role": "Sports Medicine",     "location": "Ikoyi Lagos",           "shift": "08:00–16:00", "patients": 4, "utilisation": 65},
-                {"name": "Nurse Adaeze",   "role": "Senior Nurse",        "location": "Old GRA Port Harcourt", "shift": "07:00–19:00", "patients": 5, "utilisation": 88},
-                {"name": "Nurse Emeka",    "role": "Cardiac Rehab Nurse", "location": "Old GRA Port Harcourt", "shift": "07:00–19:00", "patients": 4, "utilisation": 76},
-                {"name": "Nurse Fatima",   "role": "Senior Nurse",        "location": "Ikoyi Lagos",           "shift": "07:00–19:00", "patients": 5, "utilisation": 83},
-                {"name": "Nurse Chukwudi", "role": "Physiotherapy Asst",  "location": "Ikoyi Lagos",           "shift": "08:00–16:00", "patients": 4, "utilisation": 70},
-                {"name": "Nurse Blessing", "role": "Ward Nurse",          "location": "Old GRA Port Harcourt", "shift": "19:00–07:00", "patients": 6, "utilisation": 92},
-            ]
+            # Empty by default — you add your own real staff below
+            st.session_state.ops_staff = []
 
     init_ops_state()
     patients = st.session_state.ops_patients
@@ -3094,6 +3082,14 @@ elif "Operational Intelligence" in page:
                 new_risk = st.selectbox("Fall Risk", ["Low", "Medium", "High"], key="new_risk")
                 new_age  = st.number_input("Age", 18, 100, 55, key="new_age")
 
+            # Assign from actual staff list
+            staff_names_all = ["Unassigned"] + [s["name"] for s in st.session_state.get("ops_staff", [])]
+            nc4, nc5 = st.columns(2)
+            with nc4:
+                assign_doctor = st.selectbox("Assign Doctor:", staff_names_all, key="assign_doc")
+            with nc5:
+                assign_nurse  = st.selectbox("Assign Nurse:", staff_names_all, key="assign_nur")
+
             if st.button("Admit Patient", type="primary", key="btn_admit"):
                 next_bed = f"Bed {len([p for p in patients if p['status']=='Admitted'])+1:02d}"
                 patients.append({
@@ -3102,103 +3098,191 @@ elif "Operational Intelligence" in page:
                     "dept":        new_dept, "diagnosis": new_diag or "Pending",
                     "admit_time":  dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
                     "los_hours":   0, "status": "Admitted", "bed": next_bed,
-                    "fall_risk":   new_risk, "nurse": "Nurse Adaeze",
-                    "doctor":      "Dr. Okafor", "wait_mins": 0,
+                    "fall_risk":   new_risk,
+                    "nurse":       assign_nurse,
+                    "doctor":      assign_doctor,
+                    "wait_mins":   0,
                     "ehr_complete": False, "vitals_due": True, "notes": "",
                 })
                 st.session_state.ops_patients = patients
-                st.success(f"Patient {new_id} admitted to {next_bed}")
+                st.success(f"Patient {new_id} admitted to {next_bed} — assigned to {assign_doctor}")
                 st.rerun()
 
     # ════════════════════════════════════════════════════════
     # TAB 2 — STAFFING OPTIMISATION
     # ════════════════════════════════════════════════════════
     with ops_tab2:
-        st.subheader("Staffing Efficiency Dashboard")
+        st.subheader("Staff Schedule & Workload Management")
+        st.caption("Add your real JoiHealth staff below. All names and data are entered by you — nothing is auto-generated.")
 
-        # Utilisation chart
-        import matplotlib.pyplot as plt
+        # ── ADD NEW STAFF MEMBER ─────────────────────────────
+        with st.expander("➕ Add Staff Member", expanded=(len(staff) == 0)):
+            if len(staff) == 0:
+                st.info("No staff added yet. Fill in the form below to add your first clinician.")
+            sc1, sc2, sc3 = st.columns(3)
+            with sc1:
+                new_name  = st.text_input("Full name", placeholder="e.g. Dr. Emeka Okafor", key="add_name")
+                new_role  = st.selectbox("Role", [
+                    "Cardiologist", "Physiatrist", "Physiotherapist",
+                    "Sports Medicine Physician", "Cardiac Rehab Nurse",
+                    "Senior Nurse", "Ward Nurse", "Physiotherapy Assistant",
+                    "Radiographer", "Dietitian", "Medical Officer", "Other"
+                ], key="add_role")
+            with sc2:
+                new_loc   = st.selectbox("Location", [
+                    "Old GRA Port Harcourt", "Ikoyi Lagos", "Both"
+                ], key="add_loc")
+                new_shift = st.text_input("Shift hours", placeholder="e.g. 08:00–17:00", key="add_shift")
+            with sc3:
+                new_pts   = st.number_input("Current patients assigned", 0, 20, 0, key="add_pts")
+                new_util  = st.slider("Current utilisation %", 0, 100, 0, key="add_util")
 
-        fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
-        fig.patch.set_facecolor("#0D1B2A")
-        for ax in axes:
-            ax.set_facecolor("#111927")
-            ax.tick_params(colors="white")
-            for sp in ax.spines.values(): sp.set_color("#2C3E50")
+            if st.button("Add Staff Member", type="primary", key="btn_add_staff"):
+                if new_name.strip():
+                    st.session_state.ops_staff.append({
+                        "name": new_name.strip(),
+                        "role": new_role,
+                        "location": new_loc,
+                        "shift": new_shift or "—",
+                        "patients": new_pts,
+                        "utilisation": new_util,
+                    })
+                    staff = st.session_state.ops_staff
+                    st.success(f"✓ {new_name.strip()} added to staff list")
+                    st.rerun()
+                else:
+                    st.warning("Please enter a staff name.")
 
-        names  = [s["name"].split()[-1] for s in staff]
-        utils  = [s["utilisation"] for s in staff]
-        colors = ["#E63946" if u > 90 else ("#FFB703" if u > 80 else "#06D6A0") for u in utils]
+        # ── EDIT / REMOVE EXISTING STAFF ──────────────────────
+        if staff:
+            with st.expander("✏ Edit or Remove Existing Staff"):
+                edit_names = [s["name"] for s in staff]
+                edit_sel   = st.selectbox("Select staff member to edit:", edit_names, key="edit_sel")
+                edit_idx   = next((i for i, s in enumerate(staff) if s["name"] == edit_sel), None)
 
-        axes[0].barh(range(len(names)), utils, color=colors, height=0.6)
-        axes[0].set_yticks(range(len(names)))
-        axes[0].set_yticklabels(names, color="white", fontsize=9)
-        axes[0].axvline(80, color="#FFB703", ls="--", lw=1, alpha=0.6, label="80% target")
-        axes[0].axvline(90, color="#E63946", ls="--", lw=1, alpha=0.6, label="90% warning")
-        axes[0].set_xlim(0, 110)
-        axes[0].set_title("Staff Utilisation %", color="white", fontsize=11)
-        axes[0].legend(fontsize=8, facecolor="#1A2A3A", labelcolor="white")
-        for i, u in enumerate(utils):
-            axes[0].text(u + 1, i, f"{u}%", va="center", color="white", fontsize=8)
+                if edit_idx is not None:
+                    s = staff[edit_idx]
+                    ec1, ec2, ec3 = st.columns(3)
+                    with ec1:
+                        e_name  = st.text_input("Name",  value=s["name"],  key="e_name")
+                        e_role  = st.text_input("Role",  value=s["role"],  key="e_role")
+                    with ec2:
+                        e_loc   = st.text_input("Location", value=s["location"], key="e_loc")
+                        e_shift = st.text_input("Shift",    value=s["shift"],    key="e_shift")
+                    with ec3:
+                        e_pts  = st.number_input("Patients", 0, 20, int(s["patients"]),  key="e_pts")
+                        e_util = st.slider("Utilisation %", 0, 100, int(s["utilisation"]), key="e_util")
 
-        # Patients per staff member
-        pts = [s["patients"] for s in staff]
-        roles = [s["role"].split()[0] for s in staff]
-        pc = ["#00B4D8" if r in ["Cardiologist","Physiatrist","Sports"] else "#7B2FBE" for r in roles]
-        axes[1].bar(range(len(names)), pts, color=pc, width=0.6)
-        axes[1].set_xticks(range(len(names)))
-        axes[1].set_xticklabels(names, color="white", fontsize=8, rotation=30, ha="right")
-        axes[1].axhline(5, color="#FFB703", ls="--", lw=1, alpha=0.6, label="Recommended max")
-        axes[1].set_title("Patients per Staff Member", color="white", fontsize=11)
-        axes[1].tick_params(colors="white")
-        axes[1].legend(fontsize=8, facecolor="#1A2A3A", labelcolor="white")
-
-        plt.tight_layout(pad=2)
-        st.pyplot(fig)
-        plt.close()
+                    col_save, col_del = st.columns(2)
+                    with col_save:
+                        if st.button("💾 Save Changes", key="btn_edit_save"):
+                            st.session_state.ops_staff[edit_idx] = {
+                                "name": e_name, "role": e_role, "location": e_loc,
+                                "shift": e_shift, "patients": e_pts, "utilisation": e_util,
+                            }
+                            staff = st.session_state.ops_staff
+                            st.success(f"✓ {e_name} updated")
+                            st.rerun()
+                    with col_del:
+                        if st.button("🗑 Remove Staff Member", key="btn_del_staff"):
+                            removed = st.session_state.ops_staff.pop(edit_idx)
+                            staff = st.session_state.ops_staff
+                            st.success(f"✓ {removed['name']} removed from staff list")
+                            st.rerun()
 
         st.divider()
-        st.subheader("Staff Schedule & Current Load")
 
-        loc_filt_staff = st.selectbox("Filter by location:", ["All","Old GRA Port Harcourt","Ikoyi Lagos"], key="staff_loc")
-        filtered_staff = staff if loc_filt_staff == "All" else [s for s in staff if s["location"] == loc_filt_staff]
+        # ── STAFF DISPLAY TABLE ───────────────────────────────
+        if not staff:
+            st.info("Add staff members using the form above to see the schedule and workload dashboard.")
+        else:
+            # Filter
+            loc_filt_staff = st.selectbox(
+                "Filter by location:",
+                ["All", "Old GRA Port Harcourt", "Ikoyi Lagos"],
+                key="staff_loc"
+            )
+            filtered_staff = staff if loc_filt_staff == "All" else [
+                s for s in staff if s["location"] in (loc_filt_staff, "Both")]
 
-        staff_df_data = []
-        for s in filtered_staff:
-            overloaded = s["utilisation"] > 90
-            staff_df_data.append({
-                "Name":        s["name"],
-                "Role":        s["role"],
-                "Location":    s["location"],
-                "Shift":       s["shift"],
-                "Patients":    s["patients"],
-                "Utilisation": f"{s['utilisation']}% {'🔴' if overloaded else ('🟡' if s['utilisation']>80 else '🟢')}",
-                "Status":      "⚠ Overloaded" if overloaded else "✅ Normal",
-            })
-        st.dataframe(pd.DataFrame(staff_df_data), use_container_width=True, hide_index=True)
+            staff_df_data = []
+            for s in filtered_staff:
+                overloaded = s["utilisation"] > 90
+                staff_df_data.append({
+                    "Name":        s["name"],
+                    "Role":        s["role"],
+                    "Location":    s["location"],
+                    "Shift":       s["shift"],
+                    "Patients":    s["patients"],
+                    "Utilisation": f"{s['utilisation']}%",
+                    "Load":        "🔴 Overloaded" if overloaded else ("🟡 High" if s["utilisation"] > 80 else "🟢 Normal"),
+                })
+            st.dataframe(pd.DataFrame(staff_df_data), use_container_width=True, hide_index=True)
 
-        # Recommendations
-        overloaded_staff = [s for s in staff if s["utilisation"] > 90]
-        if overloaded_staff:
+            # Utilisation chart
+            import matplotlib.pyplot as plt
+            fig, axes = plt.subplots(1, 2, figsize=(13, max(3.5, len(filtered_staff) * 0.45 + 1.5)))
+            fig.patch.set_facecolor("#0D1B2A")
+            for ax in axes:
+                ax.set_facecolor("#111927")
+                ax.tick_params(colors="white")
+                for sp in ax.spines.values(): sp.set_color("#2C3E50")
+
+            names  = [s["name"].split()[-1] for s in filtered_staff]
+            utils  = [s["utilisation"] for s in filtered_staff]
+            colors = ["#E63946" if u > 90 else ("#FFB703" if u > 80 else "#06D6A0") for u in utils]
+
+            axes[0].barh(range(len(names)), utils, color=colors, height=0.6)
+            axes[0].set_yticks(range(len(names)))
+            axes[0].set_yticklabels(names, color="white", fontsize=9)
+            axes[0].axvline(80, color="#FFB703", ls="--", lw=1, alpha=0.6, label="80% target")
+            axes[0].axvline(90, color="#E63946", ls="--", lw=1, alpha=0.6, label="90% warning")
+            axes[0].set_xlim(0, 110)
+            axes[0].set_title("Staff Utilisation %", color="white", fontsize=11)
+            axes[0].legend(fontsize=8, facecolor="#1A2A3A", labelcolor="white")
+            for i, u in enumerate(utils):
+                axes[0].text(u + 1, i, f"{u}%", va="center", color="white", fontsize=8)
+
+            pts   = [s["patients"] for s in filtered_staff]
+            roles = [s["role"].split()[0] for s in filtered_staff]
+            pc    = ["#00B4D8" if r in ["Cardiologist","Physiatrist","Sports","Medical"] else "#7B2FBE" for r in roles]
+            axes[1].bar(range(len(names)), pts, color=pc, width=0.6)
+            axes[1].set_xticks(range(len(names)))
+            axes[1].set_xticklabels(names, color="white", fontsize=8, rotation=30, ha="right")
+            axes[1].axhline(5, color="#FFB703", ls="--", lw=1, alpha=0.6, label="Recommended max (5)")
+            axes[1].set_title("Patients per Staff Member", color="white", fontsize=11)
+            axes[1].tick_params(colors="white")
+            axes[1].legend(fontsize=8, facecolor="#1A2A3A", labelcolor="white")
+
+            plt.tight_layout(pad=2)
+            st.pyplot(fig)
+            plt.close()
+
+            # Overload alerts
+            overloaded_staff = [s for s in filtered_staff if s["utilisation"] > 90]
+            if overloaded_staff:
+                st.divider()
+                st.markdown("**⚠ Staffing Recommendations:**")
+                for s in overloaded_staff:
+                    st.error(
+                        f"**{s['name']}** ({s['role']}) at {s['utilisation']}% utilisation — "
+                        f"{s['patients']} patients. Consider redistributing 1–2 patients "
+                        f"to lower-utilisation staff or scheduling relief cover."
+                    )
+
+        # ── HANDOVER LOGGING ──────────────────────────────────
+        if staff:
             st.divider()
-            st.markdown("**⚠ Staffing Recommendations:**")
-            for s in overloaded_staff:
-                st.error(
-                    f"**{s['name']}** ({s['role']}) at {s['utilisation']}% utilisation — "
-                    f"{s['patients']} patients. Consider redistributing 1–2 patients "
-                    f"to lower-utilisation staff or scheduling relief cover."
-                )
-
-        # Add shift / on-call logging
-        with st.expander("📋 Log Shift Change / Handover"):
-            hc1, hc2 = st.columns(2)
-            with hc1:
-                handover_from = st.selectbox("Handover FROM:", [s["name"] for s in staff], key="ho_from")
-                handover_to   = st.selectbox("Handover TO:",   [s["name"] for s in staff], key="ho_to")
-            with hc2:
-                handover_notes = st.text_area("Handover notes / outstanding tasks:", height=80, key="ho_notes")
-            if st.button("Log Handover", key="btn_handover"):
-                st.success(f"Handover logged: {handover_from} → {handover_to} at {dt.datetime.now().strftime('%H:%M')}")
+            with st.expander("📋 Log Shift Change / Handover"):
+                hc1, hc2 = st.columns(2)
+                staff_names = [s["name"] for s in staff]
+                with hc1:
+                    handover_from = st.selectbox("Handover FROM:", staff_names, key="ho_from")
+                    handover_to   = st.selectbox("Handover TO:",   staff_names, key="ho_to")
+                with hc2:
+                    handover_notes = st.text_area("Handover notes / outstanding tasks:", height=80, key="ho_notes")
+                if st.button("Log Handover", key="btn_handover"):
+                    st.success(f"✓ Handover logged: {handover_from} → {handover_to} at {dt.datetime.now().strftime('%H:%M')}")
 
     # ════════════════════════════════════════════════════════
     # TAB 3 — PATIENT FLOW & BOTTLENECKS
