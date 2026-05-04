@@ -40,6 +40,107 @@ def _df_to_excel_bytes(sheets: dict) -> bytes:
             df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
     return buf.getvalue()
 
+def _df_to_docx_bytes(title: str, sections: list) -> bytes:
+    """
+    sections = list of (heading: str, content: str | pd.DataFrame)
+    Produces a styled Word document using python-docx.
+    """
+    try:
+        from docx import Document
+        from docx.shared import Pt, RGBColor, Cm
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+    except ImportError:
+        raise ImportError(
+            "python-docx not installed. Add 'python-docx>=1.1.0' to requirements.txt"
+        )
+
+    def _set_cell_bg(cell, hex_colour: str):
+        tc = cell._tc
+        tcPr = tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:fill"), hex_colour)
+        shd.set(qn("w:val"), "clear")
+        tcPr.append(shd)
+
+    doc = Document()
+    for sec in doc.sections:
+        sec.top_margin    = Cm(2)
+        sec.bottom_margin = Cm(2)
+        sec.left_margin   = Cm(2.5)
+        sec.right_margin  = Cm(2.5)
+
+    h0 = doc.add_heading(title, level=0)
+    h0.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if h0.runs:
+        h0.runs[0].font.color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+
+    sub = doc.add_paragraph(
+        f"Generated: {pd.Timestamp.now().strftime('%d %B %Y, %H:%M')}  |  "
+        f"CardioAI — JoiHealth Polyclinics"
+    )
+    if sub.runs:
+        sub.runs[0].font.size = Pt(9)
+        sub.runs[0].font.color.rgb = RGBColor(0x60, 0x60, 0x60)
+    doc.add_paragraph()
+
+    for heading, content in sections:
+        if heading:
+            h2 = doc.add_heading(heading, level=2)
+            if h2.runs:
+                h2.runs[0].font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+
+        if isinstance(content, pd.DataFrame):
+            if content.empty:
+                doc.add_paragraph("No data available.")
+                doc.add_paragraph()
+                continue
+            col_names = list(content.columns)
+            table = doc.add_table(rows=1 + len(content), cols=len(col_names))
+            table.style = "Table Grid"
+            hdr_row = table.rows[0]
+            for ci, col in enumerate(col_names):
+                cell = hdr_row.cells[ci]
+                cell.text = str(col)
+                _set_cell_bg(cell, "1F4E79")
+                p = cell.paragraphs[0]
+                if p.runs:
+                    p.runs[0].bold = True
+                    p.runs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+                    p.runs[0].font.size = Pt(9)
+            for ri, (_, row) in enumerate(content.iterrows()):
+                tr = table.rows[ri + 1]
+                bg = "EBF5FB" if ri % 2 == 1 else "FFFFFF"
+                for ci, val in enumerate(row):
+                    cell = tr.cells[ci]
+                    cell.text = str(val) if val is not None else ""
+                    _set_cell_bg(cell, bg)
+                    p = cell.paragraphs[0]
+                    if p.runs:
+                        p.runs[0].font.size = Pt(8.5)
+        else:
+            text = str(content) if content is not None else ""
+            for line in text.split("\n"):
+                p = doc.add_paragraph(line)
+                if p.runs:
+                    p.runs[0].font.size = Pt(10)
+        doc.add_paragraph()
+
+    disc = doc.add_paragraph()
+    run = disc.add_run(
+        "⚕ CardioAI is a clinical decision support tool only. All outputs must be "
+        "reviewed by a licensed clinician before any clinical action is taken. "
+        "— JoiHealth Polyclinics"
+    )
+    run.font.size = Pt(8)
+    run.font.italic = True
+    run.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
 def _df_to_pdf_bytes(title: str, sections: list) -> bytes:
     """
     sections = list of (heading: str, content: str | pd.DataFrame)
@@ -155,18 +256,20 @@ def _df_to_pdf_bytes(title: str, sections: list) -> bytes:
 def export_buttons(label: str, csv_df: pd.DataFrame = None,
                    excel_sheets: dict = None,
                    pdf_title: str = None, pdf_sections: list = None,
+                   docx_title: str = None, docx_sections: list = None,
                    file_stem: str = "cardioai_export"):
     """
-    Renders CSV / Excel / PDF download buttons side-by-side.
-    All three formats are always offered when data is available.
-    Errors in PDF/Excel generation are shown as st.warning, not silent failures.
+    Renders CSV / Excel / PDF / Word download buttons side-by-side.
+    All formats are always offered when data is provided.
+    Errors in any format are shown as st.warning — never silent failures.
     """
     ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M")
 
     active = []
-    if csv_df is not None:       active.append("csv")
-    if excel_sheets is not None: active.append("xlsx")
-    if pdf_sections is not None: active.append("pdf")
+    if csv_df is not None:        active.append("csv")
+    if excel_sheets is not None:  active.append("xlsx")
+    if pdf_sections is not None:  active.append("pdf")
+    if docx_sections is not None: active.append("docx")
     if not active:
         return
 
@@ -221,6 +324,22 @@ def export_buttons(label: str, csv_df: pd.DataFrame = None,
                         st.caption("Add `reportlab>=4.0.0` to requirements.txt for true PDF output.")
                 except Exception as e:
                     st.warning(f"PDF export error: {e}")
+
+            elif fmt == "docx":
+                try:
+                    data = _df_to_docx_bytes(docx_title or label, docx_sections)
+                    st.download_button(
+                        "📝 Download Word",
+                        data=data,
+                        file_name=f"{file_stem}_{ts}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                        key=f"dl_docx_{file_stem}_{ts}",
+                    )
+                except ImportError:
+                    st.warning("Word export requires python-docx. Add `python-docx>=1.1.0` to requirements.txt")
+                except Exception as e:
+                    st.warning(f"Word export error: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1825,6 +1944,15 @@ The shaded bands represent the 25th–75th and 10th–90th percentile uncertaint
                      f"Without action: {no_int_5yr:.0f}% at 5 years. "
                      f"With JoiHealth Rehabilitation: {rehab_5yr:.0f}% (reduction of {rehab_benefit:.0f} percentage points)."),
                 ],
+                docx_title="CardioAI — 5-Year Risk Trajectory Forecast",
+                docx_sections=[
+                    ("Risk Assessment", _risk_export_df),
+                    ("Monte Carlo Forecast — Scenario Outcomes at 5 Years", _forecast_df),
+                    ("Forecast Interpretation",
+                     f"Current risk: {risk_prob*100:.1f}% ({tier}). "
+                     f"Without action: {no_int_5yr:.0f}% at 5 years. "
+                     f"With JoiHealth Rehabilitation: {rehab_5yr:.0f}% (reduction of {rehab_benefit:.0f} percentage points)."),
+                ],
                 file_stem="forecast_report",
             )
 
@@ -2101,6 +2229,11 @@ elif "Patient Retention" in page:
                         ("Retention Risk Assessment", _ret_df),
                         ("Risk & Protective Factors", _ret_risk_txt),
                     ],
+                    docx_title="CardioAI — Patient Retention Risk Report",
+                    docx_sections=[
+                        ("Retention Risk Assessment", _ret_df),
+                        ("Risk & Protective Factors", _ret_risk_txt),
+                    ],
                     file_stem="retention_assessment",
                 )
 
@@ -2135,6 +2268,8 @@ elif "Model Dashboard" in page:
             excel_sheets={"Model Performance": df},
             pdf_title="CardioAI — Model Performance Report",
             pdf_sections=[("All Model Performance Metrics", df)],
+            docx_title="CardioAI — Model Performance Report",
+            docx_sections=[("All Model Performance Metrics", df)],
             file_stem="model_performance",
         )
     else:
@@ -2344,6 +2479,16 @@ elif "Clinical NLP" in page:
             with st.spinner("Running NLP extraction..."):
                 try:
                     entities = extract_entities(raw_text)
+                    _nlp_extraction_done = True
+                    _nlp_extraction_error = None
+                except Exception as e:
+                    _nlp_extraction_done = False
+                    _nlp_extraction_error = str(e)
+                    entities = None
+
+            # Render results OUTSIDE spinner to avoid DeltaGenerator conflict
+            if _nlp_extraction_done and entities is not None:
+                try:
                     show_entities(entities)
 
                     # ── ICD / ICF Codes: NLP Extraction ──────────────────
@@ -2410,6 +2555,8 @@ elif "Clinical NLP" in page:
                     )
                 except Exception as e:
                     st.error(f"Extraction error: {e}")
+            elif _nlp_extraction_error:
+                st.error(f"Extraction error: {_nlp_extraction_error}")
         else:
             st.warning("Please provide a document first — upload a file or paste text above.")
 
@@ -2718,6 +2865,12 @@ elif "Medical Imaging" in page:
             excel_sheets={"Summary": _img_summary_df, "All Pathology Scores": _img_df},
             pdf_title="CardioAI — Chest X-Ray Analysis Report",
             pdf_sections=[
+                ("Analysis Summary", _img_summary_df),
+                ("Pathology Scores", _img_df),
+                ("Clinical Report", "\n".join(report_lines)),
+            ],
+            docx_title="CardioAI — Chest X-Ray Analysis Report",
+            docx_sections=[
                 ("Analysis Summary", _img_summary_df),
                 ("Pathology Scores", _img_df),
                 ("Clinical Report", "\n".join(report_lines)),
@@ -3378,6 +3531,12 @@ elif "Pharmaco-Intelligence" in page:
                     excel_sheets={"Lab Results": _lab_df, "Drug Adjustments": _adj_df},
                     pdf_title="CardioAI — Lab Result Interpretation Report",
                     pdf_sections=[
+                        ("Lab Results", _lab_df),
+                        ("Drug Adjustment Recommendations",
+                         _adj_df if not _adj_df.empty else "No adjustments required."),
+                    ],
+                    docx_title="CardioAI — Lab Result Interpretation Report",
+                    docx_sections=[
                         ("Lab Results", _lab_df),
                         ("Drug Adjustment Recommendations",
                          _adj_df if not _adj_df.empty else "No adjustments required."),
@@ -4444,46 +4603,61 @@ elif "Operational Intelligence" in page:
         # ── Export: LOS & Patient Census ──────────────
         st.divider()
         _census_df = pd.DataFrame([{
-            "Patient ID": p["id"], "Age": p["age"], "Sex": p["sex"],
-            "Location": p["location"], "Department": p["dept"],
-            "Diagnosis": p["diagnosis"],
-            "ICD-10": p.get("icd10", ICD_DB.get(p["diagnosis"], {}).get("icd10", "—")),
-            "ICD-11": p.get("icd11", ICD_DB.get(p["diagnosis"], {}).get("icd11", "—")),
-            "Bed": p["bed"],
-            "Status": p["status"], "LOS (hrs)": p["los_hours"],
-            "Fall Risk": p["fall_risk"], "Doctor": p["doctor"],
-            "Nurse": p["nurse"], "EHR Complete": p["ehr_complete"],
-            "Vitals Due": p["vitals_due"], "Admit Time": p["admit_time"],
+            "Patient ID":   p["id"],
+            "Age":          p["age"],
+            "Sex":          p["sex"],
+            "Location":     p["location"],
+            "Department":   p["dept"],
+            "Diagnosis":    p["diagnosis"],
+            "ICD-10":       p.get("icd10") or ICD_DB.get(p.get("diagnosis",""), {}).get("icd10", "—"),
+            "ICD-11":       p.get("icd11") or ICD_DB.get(p.get("diagnosis",""), {}).get("icd11", "—"),
+            "Bed":          p["bed"],
+            "Status":       p["status"],
+            "LOS (hrs)":    p["los_hours"],
+            "Fall Risk":    p["fall_risk"],
+            "Doctor":       p["doctor"],
+            "Nurse":        p["nurse"],
+            "EHR Complete": p["ehr_complete"],
+            "Vitals Due":   p["vitals_due"],
+            "Admit Time":   p["admit_time"],
         } for p in active])
-        _los_diag_df = pd.DataFrame([{"Diagnosis": d, "Avg LOS (hrs)": round(v, 1),
-                                       "Target LOS (hrs)": lot_targets.get(d, 36),
-                                       "Patients": len(diag_los.get(d, []))}
-                                      for d, v in avg_los_by_diag.items()])
-        _ops_diag_list = list({p["diagnosis"] for p in active if p["diagnosis"] != "Pending"})
+
+        _los_diag_df = pd.DataFrame([{
+            "Diagnosis":        d,
+            "Avg LOS (hrs)":    round(v, 1),
+            "Target LOS (hrs)": lot_targets.get(d, 36),
+            "Patients":         len(diag_los.get(d, [])),
+        } for d, v in avg_los_by_diag.items()])
+
+        _ops_diag_list = list({p["diagnosis"] for p in active if p.get("diagnosis","") != "Pending"})
         _ops_icd_df    = icd_export_df(_ops_diag_list)
         render_icd_panel(_ops_diag_list, context="Patient Census — Active Diagnoses")
+
+        # Safe column subset — only select columns guaranteed to exist
+        _census_export_cols = ["Patient ID", "Diagnosis", "ICD-10", "ICD-11",
+                                "Status", "LOS (hrs)", "Fall Risk", "EHR Complete"]
+        _census_export_df = _census_df[[c for c in _census_export_cols if c in _census_df.columns]]
+
+        _ops_pdf_sections = [
+            ("Patient Census", _census_export_df),
+            ("LOS by Diagnosis", _los_diag_df),
+        ]
+        _ops_excel_sheets = {
+            "Patient Census":   _census_df,
+            "LOS by Diagnosis": _los_diag_df,
+        }
+        if not _ops_icd_df.empty:
+            _ops_pdf_sections.append(("ICD-10 / ICD-11 / ICF Codes", _ops_icd_df))
+            _ops_excel_sheets["ICD-ICF Codes"] = _ops_icd_df
+
         export_buttons(
             "Operational Data",
             csv_df=_census_df,
-            excel_sheets={
-                "Patient Census": _census_df,
-                "LOS by Diagnosis": _los_diag_df,
-                "ICD-ICF Codes": _ops_icd_df,
-            },
+            excel_sheets=_ops_excel_sheets,
             pdf_title="CardioAI — Operational Intelligence Report",
-            pdf_sections=[
-                ("Patient Census", _census_df[["Patient ID", "Diagnosis", "ICD-10", "ICD-11",
-                                                "Status", "LOS (hrs)", "Fall Risk", "EHR Complete"]]),
-                ("LOS by Diagnosis", _los_diag_df),
-                ("ICD-10 / ICD-11 / ICF Codes", _ops_icd_df),
-            ],
+            pdf_sections=_ops_pdf_sections,
             docx_title="CardioAI — Operational Intelligence Report",
-            docx_sections=[
-                ("Patient Census", _census_df[["Patient ID", "Diagnosis", "ICD-10", "ICD-11",
-                                                "Status", "LOS (hrs)", "Fall Risk", "EHR Complete"]]),
-                ("LOS by Diagnosis", _los_diag_df),
-                ("ICD-10 / ICD-11 / ICF Codes", _ops_icd_df),
-            ],
+            docx_sections=_ops_pdf_sections,
             file_stem="ops_report",
         )
 
