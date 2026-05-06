@@ -653,7 +653,7 @@ def icd_export_df(diagnoses: list) -> pd.DataFrame:
 
 
 st.set_page_config(
-    page_title="CardioAI — JoiHealth",
+    page_title="CardioAI — Nova",
     page_icon="🫀",
     layout="wide",
     initial_sidebar_state="expanded"
