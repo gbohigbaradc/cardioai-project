@@ -5526,7 +5526,7 @@ elif "About" in page:
 
         **Research Area:** Explainable AI in Preventive Healthcare
 
-        **Live App:** [cardioai-joihealth.streamlit.app](https://cardioai-joihealth.streamlit.app)
+        **Live App:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
 
         **GitHub:** [github.com/gbohigbaradc/cardioai-project](https://github.com/gbohigbaradc/cardioai-project)
         """)
