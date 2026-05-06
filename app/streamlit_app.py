@@ -1551,7 +1551,7 @@ if "Risk Prediction" in page:
                 format_func=lambda x: ["Normal","Fixed Defect","Normal (2)","Reversible Defect"][x])
 
     # ── TAB 4: FBS / Diabetes ─────────────────────────────────────────────
-    with tab_fbs:
+    with tab_fbs_dm:
         st.subheader("Blood Glucose — Fasting, Random & Diabetes Assessment")
         g1, g2 = st.columns(2)
         with g1:
