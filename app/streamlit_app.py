@@ -5526,7 +5526,7 @@ elif "About" in page:
 
         **Research Area:** Explainable AI in Preventive Healthcare
 
-        **Live App:** [cardioai-nova.streamlit.app](https://cardioai-joihealth.streamlit.app)
+        **Live App:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
 
         **GitHub:** [github.com/gbohigbaradc/cardioai-project](https://github.com/gbohigbaradc/cardioai-project)
         """)
@@ -5639,4 +5639,4 @@ elif "About" in page:
     decisions made based on this system's outputs.
     """)
 
-    st.caption("© 2025 Gboh-Igbara D. Charles — JoiHealth | cardioai-joihealth.streamlit.app")
+    st.caption("© 2025 Gboh-Igbara D. Charles — JoiHealth | cardioai-nova.streamlit.app")
