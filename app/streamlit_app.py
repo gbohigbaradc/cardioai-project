@@ -590,7 +590,7 @@ NLP_DX_TO_ICD = {
 }
 
 def render_icd_panel(diagnoses: list, context: str = ""):
-    """Render a collapsible ICD-10/11/ICF panel for a list of diagnosis name strings."""
+    """Render a collapsible ICD-10/11/ICF/CPT panel for a list of diagnosis name strings."""
     if not diagnoses:
         return
     matched   = [(dx, ICD_DB[NLP_DX_TO_ICD.get(dx, dx)])
@@ -602,45 +602,60 @@ def render_icd_panel(diagnoses: list, context: str = ""):
     if not matched and not unmatched:
         return
 
-    with st.expander(f"🏷 ICD-10 / ICD-11 / ICF Clinical Codes — {context}", expanded=False):
+    with st.expander(f"🏷 ICD / ICF / CPT Clinical Codes — {context}", expanded=False):
         for dx, rec in matched:
-            c1, c2, c3 = st.columns([2, 1.5, 2.5])
+            c1, c2, c3, c4 = st.columns([2, 1.5, 2, 2])
             with c1:
                 st.markdown(f"**{dx}**")
                 st.caption(rec["description"])
+                st.markdown(f"*{rec['category']}*")
+                st.markdown(
+                    ("✅ NHIS Billable" if rec["nhis_billable"] else "❌ Not NHIS Billable") +
+                    ("  🏥 Rehab" if rec["rehab_relevant"] else "")
+                )
             with c2:
+                st.markdown("**ICD / SNOMED**")
                 st.markdown(f"🔵 ICD-10: `{rec['icd10']}`")
                 st.markdown(f"🟢 ICD-11: `{rec['icd11']}`")
                 st.markdown(f"🟣 SNOMED: `{rec['snomed']}`")
             with c3:
-                st.markdown(f"*{rec['category']}*")
-                st.markdown(
-                    ("✅ NHIS Billable" if rec["nhis_billable"] else "❌ Not NHIS Billable") +
-                    ("  🏥 Rehab Relevant" if rec["rehab_relevant"] else "")
-                )
+                st.markdown("**ICF Functional Codes**")
                 if rec["icf_codes"]:
                     for code, label in zip(rec["icf_codes"], rec["icf_labels"]):
                         st.caption(f"`{code}` {label}")
+            with c4:
+                st.markdown("**CPT Procedures**")
+                for cpt in rec.get("cpt_codes", []):
+                    cpt_rec = CPT_DB.get(cpt, {})
+                    st.caption(f"🟠 `{cpt}` — {cpt_rec.get('description','—')}  ₦{cpt_rec.get('nhis_tariff',0):,}")
             st.divider()
         if unmatched:
             st.caption(f"⚠ No ICD mapping found for: {', '.join(unmatched)}")
 
 def icd_export_df(diagnoses: list) -> pd.DataFrame:
-    """Flat DataFrame of ICD/ICF codes for a list of diagnosis names — used in exports."""
+    """Flat DataFrame of ICD/ICF/CPT codes for a list of diagnosis names — used in exports."""
     rows = []
     for dx in diagnoses:
         key = NLP_DX_TO_ICD.get(dx, dx)
         rec = ICD_DB.get(key)
         if rec:
+            cpt_codes = rec.get("cpt_codes", [])
+            cpt_descs = [CPT_DB.get(c, {}).get("description", "—") for c in cpt_codes]
+            cpt_tariffs = sum(CPT_DB.get(c, {}).get("nhis_tariff", 0) for c in cpt_codes)
             rows.append({
-                "Diagnosis": dx,
-                "ICD-10": rec["icd10"], "ICD-11": rec["icd11"],
-                "SNOMED CT": rec["snomed"], "Description": rec["description"],
-                "Category": rec["category"],
-                "NHIS Billable": "Yes" if rec["nhis_billable"] else "No",
-                "Rehab Relevant": "Yes" if rec["rehab_relevant"] else "No",
-                "ICF Codes": ", ".join(rec["icf_codes"]),
+                "Diagnosis":        dx,
+                "ICD-10":           rec["icd10"],
+                "ICD-11":           rec["icd11"],
+                "SNOMED CT":        rec["snomed"],
+                "Description":      rec["description"],
+                "Category":         rec["category"],
+                "NHIS Billable":    "Yes" if rec["nhis_billable"] else "No",
+                "Rehab Relevant":   "Yes" if rec["rehab_relevant"] else "No",
+                "ICF Codes":        ", ".join(rec["icf_codes"]),
                 "ICF Descriptions": ", ".join(rec["icf_labels"]),
+                "CPT Codes":        ", ".join(cpt_codes),
+                "CPT Procedures":   " | ".join(cpt_descs),
+                "Est. NHIS Tariff (₦)": cpt_tariffs,
             })
         else:
             rows.append({
@@ -648,7 +663,601 @@ def icd_export_df(diagnoses: list) -> pd.DataFrame:
                 "Description": "Not mapped in ICD_DB", "Category": "—",
                 "NHIS Billable": "—", "Rehab Relevant": "—",
                 "ICF Codes": "—", "ICF Descriptions": "—",
+                "CPT Codes": "—", "CPT Procedures": "—", "Est. NHIS Tariff (₦)": 0,
             })
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CPT — CURRENT PROCEDURAL TERMINOLOGY  (AMA / NHIS Procedure Codes)
+# Covers all investigations and procedures relevant to JoiHealth cardiac rehab.
+# Nigerian NHIS tariff estimates in ₦ are approximate 2025 rates.
+# ══════════════════════════════════════════════════════════════════════════════
+
+CPT_DB = {
+    # ── Evaluation & Management ───────────────────────────────────────────
+    "99202": {"description": "Office visit — new patient, low complexity",
+              "category": "E&M", "nhis_tariff": 5000, "unit": "per visit"},
+    "99203": {"description": "Office visit — new patient, moderate complexity",
+              "category": "E&M", "nhis_tariff": 8000, "unit": "per visit"},
+    "99213": {"description": "Office visit — established patient, low-moderate complexity",
+              "category": "E&M", "nhis_tariff": 4000, "unit": "per visit"},
+    "99214": {"description": "Office visit — established patient, moderate-high complexity",
+              "category": "E&M", "nhis_tariff": 6500, "unit": "per visit"},
+    "99223": {"description": "Initial hospital care — high complexity",
+              "category": "E&M", "nhis_tariff": 15000, "unit": "per admission"},
+    "99232": {"description": "Subsequent hospital care — moderate complexity",
+              "category": "E&M", "nhis_tariff": 7000, "unit": "per day"},
+    "99238": {"description": "Hospital discharge day management",
+              "category": "E&M", "nhis_tariff": 5000, "unit": "per discharge"},
+
+    # ── Cardiovascular Procedures ─────────────────────────────────────────
+    "93000": {"description": "ECG — routine 12-lead with interpretation and report",
+              "category": "Cardiology", "nhis_tariff": 3500, "unit": "per test"},
+    "93005": {"description": "ECG — tracing only, no interpretation",
+              "category": "Cardiology", "nhis_tariff": 2000, "unit": "per test"},
+    "93306": {"description": "Echocardiography — transthoracic with Doppler",
+              "category": "Cardiology", "nhis_tariff": 35000, "unit": "per study"},
+    "93307": {"description": "Echocardiography — transthoracic, without Doppler",
+              "category": "Cardiology", "nhis_tariff": 25000, "unit": "per study"},
+    "93015": {"description": "Cardiovascular stress test (exercise ECG — treadmill/bike)",
+              "category": "Cardiology", "nhis_tariff": 20000, "unit": "per test"},
+    "93017": {"description": "Cardiovascular stress test — tracing only",
+              "category": "Cardiology", "nhis_tariff": 12000, "unit": "per test"},
+    "93224": {"description": "Holter monitor — 24-hour ECG, recording and analysis",
+              "category": "Cardiology", "nhis_tariff": 28000, "unit": "per study"},
+    "93268": {"description": "Patient-activated event recorder — 30 days",
+              "category": "Cardiology", "nhis_tariff": 40000, "unit": "per study"},
+    "93452": {"description": "Left heart catheterisation — coronary angiography",
+              "category": "Cardiology", "nhis_tariff": 250000, "unit": "per procedure"},
+    "93458": {"description": "Coronary angiography — left and right heart catheterisation",
+              "category": "Cardiology", "nhis_tariff": 350000, "unit": "per procedure"},
+    "93798": {"description": "Cardiac rehabilitation — per session (physician supervision)",
+              "category": "Cardiology", "nhis_tariff": 8000, "unit": "per session"},
+    "33249": {"description": "Implantable cardioverter-defibrillator (ICD) insertion",
+              "category": "Cardiology", "nhis_tariff": 1500000, "unit": "per procedure"},
+    "33208": {"description": "Permanent pacemaker insertion — dual chamber",
+              "category": "Cardiology", "nhis_tariff": 900000, "unit": "per procedure"},
+
+    # ── Vital Signs & Physical Exam ───────────────────────────────────────
+    "94760": {"description": "Pulse oximetry — single determination (SpO₂)",
+              "category": "Vital Signs", "nhis_tariff": 500, "unit": "per reading"},
+    "94761": {"description": "Pulse oximetry — multiple determinations",
+              "category": "Vital Signs", "nhis_tariff": 1500, "unit": "per session"},
+    "93784": {"description": "24-hour ambulatory blood pressure monitoring (ABPM)",
+              "category": "Vital Signs", "nhis_tariff": 18000, "unit": "per study"},
+
+    # ── Imaging ───────────────────────────────────────────────────────────
+    "71046": {"description": "Chest X-ray — 2 views (PA and lateral)",
+              "category": "Radiology", "nhis_tariff": 6000, "unit": "per study"},
+    "71045": {"description": "Chest X-ray — 1 view",
+              "category": "Radiology", "nhis_tariff": 3500, "unit": "per study"},
+    "74177": {"description": "CT Chest with contrast",
+              "category": "Radiology", "nhis_tariff": 80000, "unit": "per study"},
+    "70553": {"description": "MRI Brain with contrast",
+              "category": "Radiology", "nhis_tariff": 120000, "unit": "per study"},
+    "93880": {"description": "Carotid duplex ultrasound — bilateral",
+              "category": "Radiology", "nhis_tariff": 25000, "unit": "per study"},
+    "76770": {"description": "Abdominal/renal ultrasound",
+              "category": "Radiology", "nhis_tariff": 15000, "unit": "per study"},
+
+    # ── Blood Glucose & Diabetes ──────────────────────────────────────────
+    "82947": {"description": "Glucose — fasting blood sugar (FBS)",
+              "category": "Chemistry", "nhis_tariff": 800, "unit": "per test"},
+    "82948": {"description": "Glucose — random blood sugar (RBS)",
+              "category": "Chemistry", "nhis_tariff": 800, "unit": "per test"},
+    "83036": {"description": "HbA1c (glycated haemoglobin)",
+              "category": "Chemistry", "nhis_tariff": 3500, "unit": "per test"},
+    "82950": {"description": "Glucose — post-challenge (OGTT 2-hour)",
+              "category": "Chemistry", "nhis_tariff": 2500, "unit": "per test"},
+    "84681": {"description": "C-Peptide",
+              "category": "Chemistry", "nhis_tariff": 8000, "unit": "per test"},
+    "83525": {"description": "Insulin — fasting",
+              "category": "Chemistry", "nhis_tariff": 7500, "unit": "per test"},
+
+    # ── Lipid Profile ─────────────────────────────────────────────────────
+    "80061": {"description": "Lipid panel — total cholesterol, HDL, triglycerides (LDL calculated)",
+              "category": "Chemistry", "nhis_tariff": 3000, "unit": "per panel"},
+    "82465": {"description": "Total cholesterol",
+              "category": "Chemistry", "nhis_tariff": 1000, "unit": "per test"},
+    "83718": {"description": "HDL cholesterol",
+              "category": "Chemistry", "nhis_tariff": 1200, "unit": "per test"},
+    "84478": {"description": "Triglycerides",
+              "category": "Chemistry", "nhis_tariff": 1200, "unit": "per test"},
+    "83721": {"description": "LDL cholesterol — direct measurement",
+              "category": "Chemistry", "nhis_tariff": 1500, "unit": "per test"},
+    "86141": {"description": "hs-CRP (high-sensitivity C-reactive protein)",
+              "category": "Chemistry", "nhis_tariff": 4500, "unit": "per test"},
+    "83695": {"description": "Lipoprotein(a) — Lp(a)",
+              "category": "Chemistry", "nhis_tariff": 9000, "unit": "per test"},
+
+    # ── Renal & Electrolytes (E/U/Cr) ────────────────────────────────────
+    "80048": {"description": "Basic metabolic panel (Na, K, Cl, CO₂, Glucose, BUN, Creatinine, Ca)",
+              "category": "Chemistry", "nhis_tariff": 4500, "unit": "per panel"},
+    "80053": {"description": "Comprehensive metabolic panel (BMP + LFTs + proteins)",
+              "category": "Chemistry", "nhis_tariff": 7500, "unit": "per panel"},
+    "84520": {"description": "Urea / BUN",
+              "category": "Chemistry", "nhis_tariff": 800, "unit": "per test"},
+    "82565": {"description": "Creatinine — serum",
+              "category": "Chemistry", "nhis_tariff": 800, "unit": "per test"},
+    "82570": {"description": "Creatinine — urine",
+              "category": "Chemistry", "nhis_tariff": 1000, "unit": "per test"},
+    "33935": {"description": "eGFR — estimated glomerular filtration rate (reported with creatinine)",
+              "category": "Chemistry", "nhis_tariff": 500, "unit": "per test"},
+    "82042": {"description": "Urine albumin — quantitative",
+              "category": "Chemistry", "nhis_tariff": 2000, "unit": "per test"},
+    "82044": {"description": "Urine albumin — microalbumin, quantitative",
+              "category": "Chemistry", "nhis_tariff": 2500, "unit": "per test"},
+    "84550": {"description": "Uric acid — serum",
+              "category": "Chemistry", "nhis_tariff": 1000, "unit": "per test"},
+    "82374": {"description": "Bicarbonate / CO₂ — serum",
+              "category": "Chemistry", "nhis_tariff": 700, "unit": "per test"},
+
+    # ── Electrolytes (individual) ─────────────────────────────────────────
+    "84295": {"description": "Sodium (Na⁺)",
+              "category": "Chemistry", "nhis_tariff": 600, "unit": "per test"},
+    "84132": {"description": "Potassium (K⁺)",
+              "category": "Chemistry", "nhis_tariff": 600, "unit": "per test"},
+    "82435": {"description": "Chloride (Cl⁻)",
+              "category": "Chemistry", "nhis_tariff": 600, "unit": "per test"},
+    "82310": {"description": "Calcium — total serum",
+              "category": "Chemistry", "nhis_tariff": 800, "unit": "per test"},
+    "83735": {"description": "Magnesium (Mg²⁺)",
+              "category": "Chemistry", "nhis_tariff": 1000, "unit": "per test"},
+    "84100": {"description": "Phosphate (PO₄³⁻)",
+              "category": "Chemistry", "nhis_tariff": 800, "unit": "per test"},
+
+    # ── Cardiac Biomarkers ────────────────────────────────────────────────
+    "84484": {"description": "Troponin I — quantitative",
+              "category": "Cardiac Markers", "nhis_tariff": 8000, "unit": "per test"},
+    "84512": {"description": "Troponin T — quantitative",
+              "category": "Cardiac Markers", "nhis_tariff": 8000, "unit": "per test"},
+    "82553": {"description": "CK-MB (creatine kinase MB isoenzyme)",
+              "category": "Cardiac Markers", "nhis_tariff": 4000, "unit": "per test"},
+    "82550": {"description": "Total CK (creatine kinase)",
+              "category": "Cardiac Markers", "nhis_tariff": 2000, "unit": "per test"},
+    "83880": {"description": "BNP (B-type natriuretic peptide)",
+              "category": "Cardiac Markers", "nhis_tariff": 12000, "unit": "per test"},
+    "83937": {"description": "NT-proBNP",
+              "category": "Cardiac Markers", "nhis_tariff": 14000, "unit": "per test"},
+    "83874": {"description": "Myoglobin",
+              "category": "Cardiac Markers", "nhis_tariff": 5000, "unit": "per test"},
+    "83090": {"description": "Homocysteine",
+              "category": "Cardiac Markers", "nhis_tariff": 9000, "unit": "per test"},
+
+    # ── Liver Function Tests ──────────────────────────────────────────────
+    "80076": {"description": "Hepatic function panel (ALT, AST, ALP, bilirubin, albumin, total protein)",
+              "category": "Chemistry", "nhis_tariff": 4000, "unit": "per panel"},
+    "84460": {"description": "ALT / SGPT",
+              "category": "Chemistry", "nhis_tariff": 1000, "unit": "per test"},
+    "84450": {"description": "AST / SGOT",
+              "category": "Chemistry", "nhis_tariff": 1000, "unit": "per test"},
+    "84075": {"description": "ALP (alkaline phosphatase)",
+              "category": "Chemistry", "nhis_tariff": 1000, "unit": "per test"},
+    "82977": {"description": "GGT (gamma-glutamyl transferase)",
+              "category": "Chemistry", "nhis_tariff": 1500, "unit": "per test"},
+    "82247": {"description": "Total bilirubin",
+              "category": "Chemistry", "nhis_tariff": 800, "unit": "per test"},
+    "82040": {"description": "Albumin — serum",
+              "category": "Chemistry", "nhis_tariff": 800, "unit": "per test"},
+
+    # ── Inflammatory Markers ──────────────────────────────────────────────
+    "86140": {"description": "CRP (C-reactive protein)",
+              "category": "Immunology", "nhis_tariff": 2000, "unit": "per test"},
+    "85652": {"description": "ESR (erythrocyte sedimentation rate)",
+              "category": "Haematology", "nhis_tariff": 800, "unit": "per test"},
+    "82728": {"description": "Ferritin — serum",
+              "category": "Chemistry", "nhis_tariff": 4000, "unit": "per test"},
+    "83615": {"description": "LDH (lactate dehydrogenase)",
+              "category": "Chemistry", "nhis_tariff": 1500, "unit": "per test"},
+    "84244": {"description": "Procalcitonin (PCT)",
+              "category": "Immunology", "nhis_tariff": 12000, "unit": "per test"},
+
+    # ── Full Blood Count ──────────────────────────────────────────────────
+    "85025": {"description": "Full blood count / CBC with differential",
+              "category": "Haematology", "nhis_tariff": 2000, "unit": "per test"},
+    "85027": {"description": "CBC without differential",
+              "category": "Haematology", "nhis_tariff": 1500, "unit": "per test"},
+    "85610": {"description": "Prothrombin time (PT / INR)",
+              "category": "Haematology", "nhis_tariff": 2500, "unit": "per test"},
+    "85730": {"description": "APTT (activated partial thromboplastin time)",
+              "category": "Haematology", "nhis_tariff": 2500, "unit": "per test"},
+
+    # ── Thyroid & Endocrinology ───────────────────────────────────────────
+    "84443": {"description": "TSH (thyroid stimulating hormone)",
+              "category": "Endocrinology", "nhis_tariff": 5000, "unit": "per test"},
+    "84439": {"description": "Free T4 (thyroxine — free)",
+              "category": "Endocrinology", "nhis_tariff": 5000, "unit": "per test"},
+    "84481": {"description": "Free T3 (triiodothyronine — free)",
+              "category": "Endocrinology", "nhis_tariff": 5000, "unit": "per test"},
+    "82533": {"description": "Cortisol — serum (AM)",
+              "category": "Endocrinology", "nhis_tariff": 8000, "unit": "per test"},
+    "82088": {"description": "Aldosterone — serum",
+              "category": "Endocrinology", "nhis_tariff": 10000, "unit": "per test"},
+    "84270": {"description": "SHBG (sex hormone binding globulin)",
+              "category": "Endocrinology", "nhis_tariff": 8000, "unit": "per test"},
+    "84403": {"description": "Testosterone — total serum",
+              "category": "Endocrinology", "nhis_tariff": 8000, "unit": "per test"},
+    "82670": {"description": "Oestradiol (E2)",
+              "category": "Endocrinology", "nhis_tariff": 8000, "unit": "per test"},
+    "84146": {"description": "Prolactin",
+              "category": "Endocrinology", "nhis_tariff": 7000, "unit": "per test"},
+    "84153": {"description": "PSA — total",
+              "category": "Endocrinology", "nhis_tariff": 6000, "unit": "per test"},
+    "84244": {"description": "Renin — plasma activity",
+              "category": "Endocrinology", "nhis_tariff": 12000, "unit": "per test"},
+
+    # ── Serology / Immunology ─────────────────────────────────────────────
+    "86038": {"description": "ANA (antinuclear antibody)",
+              "category": "Serology", "nhis_tariff": 8000, "unit": "per test"},
+    "86235": {"description": "Anti-dsDNA antibody",
+              "category": "Serology", "nhis_tariff": 9000, "unit": "per test"},
+    "86430": {"description": "Rheumatoid factor (RF)",
+              "category": "Serology", "nhis_tariff": 3000, "unit": "per test"},
+    "86200": {"description": "Anti-CCP (cyclic citrullinated peptide antibody)",
+              "category": "Serology", "nhis_tariff": 12000, "unit": "per test"},
+    "86147": {"description": "Antiphospholipid antibody (cardiolipin IgG/IgM)",
+              "category": "Serology", "nhis_tariff": 10000, "unit": "per test"},
+    "86063": {"description": "Complement C3",
+              "category": "Serology", "nhis_tariff": 6000, "unit": "per test"},
+    "86060": {"description": "Complement C4",
+              "category": "Serology", "nhis_tariff": 6000, "unit": "per test"},
+    "87340": {"description": "HBsAg (Hepatitis B surface antigen)",
+              "category": "Serology", "nhis_tariff": 2500, "unit": "per test"},
+    "86704": {"description": "HBcAb (Hepatitis B core antibody)",
+              "category": "Serology", "nhis_tariff": 3500, "unit": "per test"},
+    "86803": {"description": "Anti-HCV (Hepatitis C antibody)",
+              "category": "Serology", "nhis_tariff": 3500, "unit": "per test"},
+    "87389": {"description": "HIV-1/2 Ag/Ab combination test",
+              "category": "Serology", "nhis_tariff": 3000, "unit": "per test"},
+    "86592": {"description": "VDRL / RPR (syphilis screening)",
+              "category": "Serology", "nhis_tariff": 1500, "unit": "per test"},
+    "86596": {"description": "TPHA (syphilis confirmatory)",
+              "category": "Serology", "nhis_tariff": 3000, "unit": "per test"},
+
+    # ── Microbiology ──────────────────────────────────────────────────────
+    "87040": {"description": "Blood culture — aerobic and anaerobic",
+              "category": "Microbiology", "nhis_tariff": 5000, "unit": "per set"},
+    "87086": {"description": "Urine culture and sensitivity (M/C/S)",
+              "category": "Microbiology", "nhis_tariff": 4000, "unit": "per test"},
+    "87070": {"description": "Sputum culture and sensitivity",
+              "category": "Microbiology", "nhis_tariff": 4000, "unit": "per test"},
+    "87081": {"description": "Wound swab culture and sensitivity",
+              "category": "Microbiology", "nhis_tariff": 4000, "unit": "per test"},
+    "87207": {"description": "AFB smear (acid-fast bacilli — TB screen)",
+              "category": "Microbiology", "nhis_tariff": 2500, "unit": "per test"},
+    "87015": {"description": "Malaria thick and thin film / RDT",
+              "category": "Microbiology", "nhis_tariff": 1500, "unit": "per test"},
+    "87305": {"description": "Stool M/C/S (microscopy, culture, sensitivity)",
+              "category": "Microbiology", "nhis_tariff": 3000, "unit": "per test"},
+    "87502": {"description": "Influenza A and B — molecular (PCR)",
+              "category": "Microbiology", "nhis_tariff": 12000, "unit": "per test"},
+    "87635": {"description": "SARS-CoV-2 (COVID-19) — molecular (PCR)",
+              "category": "Microbiology", "nhis_tariff": 15000, "unit": "per test"},
+
+    # ── Toxicology & Drug Monitoring ──────────────────────────────────────
+    "80162": {"description": "Digoxin level — therapeutic monitoring",
+              "category": "Toxicology", "nhis_tariff": 7000, "unit": "per test"},
+    "80202": {"description": "Vancomycin — therapeutic drug monitoring",
+              "category": "Toxicology", "nhis_tariff": 8000, "unit": "per test"},
+    "80185": {"description": "Phenytoin — total",
+              "category": "Toxicology", "nhis_tariff": 6000, "unit": "per test"},
+    "80178": {"description": "Lithium — therapeutic monitoring",
+              "category": "Toxicology", "nhis_tariff": 6000, "unit": "per test"},
+    "82055": {"description": "Blood alcohol level",
+              "category": "Toxicology", "nhis_tariff": 3000, "unit": "per test"},
+    "80150": {"description": "Paracetamol (acetaminophen) level",
+              "category": "Toxicology", "nhis_tariff": 5000, "unit": "per test"},
+    "80101": {"description": "Urine drug screen — qualitative (multi-panel)",
+              "category": "Toxicology", "nhis_tariff": 8000, "unit": "per test"},
+
+    # ── Cytology & Histopathology ─────────────────────────────────────────
+    "88141": {"description": "Cervical cytology (LBC) — interpretation",
+              "category": "Pathology", "nhis_tariff": 5000, "unit": "per test"},
+    "87624": {"description": "HPV — high risk, nucleic acid (PCR)",
+              "category": "Pathology", "nhis_tariff": 15000, "unit": "per test"},
+    "88305": {"description": "Surgical pathology — biopsy interpretation (Level IV)",
+              "category": "Pathology", "nhis_tariff": 12000, "unit": "per specimen"},
+    "88307": {"description": "Surgical pathology — complex specimen (Level V)",
+              "category": "Pathology", "nhis_tariff": 18000, "unit": "per specimen"},
+    "88173": {"description": "FNAC — interpretation",
+              "category": "Pathology", "nhis_tariff": 8000, "unit": "per test"},
+    "88108": {"description": "Cytopathology — concentration technique (sputum/pleural/urine)",
+              "category": "Pathology", "nhis_tariff": 6000, "unit": "per specimen"},
+
+    # ── Tumour Markers ────────────────────────────────────────────────────
+    "86304": {"description": "CA-125 (cancer antigen 125)",
+              "category": "Tumour Markers", "nhis_tariff": 9000, "unit": "per test"},
+    "86301": {"description": "CA 19-9",
+              "category": "Tumour Markers", "nhis_tariff": 9000, "unit": "per test"},
+    "82378": {"description": "CEA (carcinoembryonic antigen)",
+              "category": "Tumour Markers", "nhis_tariff": 8000, "unit": "per test"},
+    "82105": {"description": "AFP (alpha-fetoprotein)",
+              "category": "Tumour Markers", "nhis_tariff": 8000, "unit": "per test"},
+
+    # ── Allergy ───────────────────────────────────────────────────────────
+    "86003": {"description": "Allergen-specific IgE — single allergen",
+              "category": "Allergy", "nhis_tariff": 4000, "unit": "per allergen"},
+    "86005": {"description": "Total IgE — serum",
+              "category": "Allergy", "nhis_tariff": 5000, "unit": "per test"},
+    "95004": {"description": "Skin prick tests — percutaneous (per test)",
+              "category": "Allergy", "nhis_tariff": 1500, "unit": "per allergen"},
+
+    # ── Rehabilitation ────────────────────────────────────────────────────
+    "97110": {"description": "Therapeutic exercise — per 15 minutes",
+              "category": "Rehabilitation", "nhis_tariff": 3000, "unit": "per 15 min"},
+    "97012": {"description": "Mechanical traction — per session",
+              "category": "Rehabilitation", "nhis_tariff": 2500, "unit": "per session"},
+    "97530": {"description": "Therapeutic activities — per 15 minutes",
+              "category": "Rehabilitation", "nhis_tariff": 3000, "unit": "per 15 min"},
+    "97003": {"description": "Occupational therapy evaluation",
+              "category": "Rehabilitation", "nhis_tariff": 8000, "unit": "per evaluation"},
+    "97001": {"description": "Physical therapy evaluation",
+              "category": "Rehabilitation", "nhis_tariff": 8000, "unit": "per evaluation"},
+}
+
+# ── Map: Investigation name (as used in risk module) → CPT code(s) ────────────
+INVESTIGATION_CPT_MAP = {
+    # Vitals
+    "SpO₂ / Pulse Oximetry":          ["94760"],
+    "24hr Ambulatory BP Monitoring":   ["93784"],
+    # ECG
+    "12-Lead ECG":                     ["93000"],
+    "Holter Monitor (24hr)":           ["93224"],
+    "Exercise Stress Test":            ["93015"],
+    # Blood glucose
+    "Fasting Blood Sugar (FBS)":       ["82947"],
+    "Random Blood Sugar (RBS)":        ["82948"],
+    "HbA1c":                           ["83036"],
+    "OGTT (2-hour)":                   ["82950"],
+    "C-Peptide":                       ["84681"],
+    "Fasting Insulin":                 ["83525"],
+    # Lipid profile
+    "Fasting Lipid Panel":             ["80061"],
+    "LDL (direct)":                    ["83721"],
+    "hs-CRP":                          ["86141"],
+    "Lp(a)":                           ["83695"],
+    "ApoB":                            ["82172"],
+    # Renal
+    "Urea / BUN":                      ["84520"],
+    "Creatinine (serum)":              ["82565"],
+    "eGFR":                            ["33935"],
+    "Urine Albumin (microalbumin)":    ["82044"],
+    "Uric Acid":                       ["84550"],
+    "Cystatin C":                      ["82610"],
+    # Electrolytes
+    "Basic Metabolic Panel":           ["80048"],
+    "Comprehensive Metabolic Panel":   ["80053"],
+    "Sodium":                          ["84295"],
+    "Potassium":                       ["84132"],
+    "Chloride":                        ["82435"],
+    "Bicarbonate":                     ["82374"],
+    "Calcium":                         ["82310"],
+    "Magnesium":                       ["83735"],
+    "Phosphate":                       ["84100"],
+    # Chemistry / LFTs
+    "Hepatic Function Panel":          ["80076"],
+    "ALT":                             ["84460"],
+    "AST":                             ["84450"],
+    "ALP":                             ["84075"],
+    "GGT":                             ["82977"],
+    "Total Bilirubin":                 ["82247"],
+    "Albumin":                         ["82040"],
+    # Cardiac markers
+    "Troponin I":                      ["84484"],
+    "Troponin T":                      ["84512"],
+    "CK-MB":                           ["82553"],
+    "Total CK":                        ["82550"],
+    "BNP":                             ["83880"],
+    "NT-proBNP":                       ["83937"],
+    "Myoglobin":                       ["83874"],
+    "Homocysteine":                    ["83090"],
+    "CRP":                             ["86140"],
+    "ESR":                             ["85652"],
+    "Ferritin":                        ["82728"],
+    "LDH":                             ["83615"],
+    "Procalcitonin":                   ["84244"],
+    # Haematology
+    "Full Blood Count (CBC)":          ["85025"],
+    "INR / PT":                        ["85610"],
+    "APTT":                            ["85730"],
+    # Thyroid
+    "TSH":                             ["84443"],
+    "Free T4":                         ["84439"],
+    "Free T3":                         ["84481"],
+    # Other endocrine
+    "Cortisol (AM)":                   ["82533"],
+    "Aldosterone":                     ["82088"],
+    "Testosterone":                    ["84403"],
+    "Oestradiol (E2)":                 ["82670"],
+    "Prolactin":                       ["84146"],
+    "PSA":                             ["84153"],
+    # Serology
+    "ANA":                             ["86038"],
+    "Anti-dsDNA":                      ["86235"],
+    "Rheumatoid Factor":               ["86430"],
+    "Anti-CCP":                        ["86200"],
+    "Antiphospholipid Ab":             ["86147"],
+    "HBsAg":                           ["87340"],
+    "Anti-HCV":                        ["86803"],
+    "HIV Ag/Ab":                       ["87389"],
+    "VDRL / RPR":                      ["86592"],
+    "TPHA":                            ["86596"],
+    # Microbiology
+    "Blood Culture":                   ["87040"],
+    "Urine Culture (M/C/S)":           ["87086"],
+    "Sputum Culture":                  ["87070"],
+    "Wound Swab Culture":              ["87081"],
+    "AFB Smear":                       ["87207"],
+    "Malaria RDT / Film":              ["87015"],
+    "Stool M/C/S":                     ["87305"],
+    "Influenza PCR":                   ["87502"],
+    "COVID-19 PCR":                    ["87635"],
+    # Toxicology
+    "Digoxin Level":                   ["80162"],
+    "Vancomycin Level":                ["80202"],
+    "Phenytoin Level":                 ["80185"],
+    "Lithium Level":                   ["80178"],
+    "Blood Alcohol":                   ["82055"],
+    "Paracetamol Level":               ["80150"],
+    "Urine Drug Screen":               ["80101"],
+    # Cytology & Histopathology
+    "Cervical LBC (Pap smear)":        ["88141"],
+    "HPV Test":                        ["87624"],
+    "GIT Biopsy":                      ["88305"],
+    "FNAC":                            ["88173"],
+    "Sputum/Pleural/Urine Cytology":   ["88108"],
+    # Tumour markers
+    "CA-125":                          ["86304"],
+    "CA 19-9":                         ["86301"],
+    "CEA":                             ["82378"],
+    "AFP":                             ["82105"],
+    # Allergy
+    "Total IgE":                       ["86005"],
+    "Skin Prick Test":                 ["95004"],
+    # Imaging
+    "Chest X-Ray (2 views)":           ["71046"],
+    "Echocardiogram":                  ["93306"],
+    "Carotid Duplex Ultrasound":       ["93880"],
+    "Abdominal/Renal Ultrasound":      ["76770"],
+    # Rehab
+    "Cardiac Rehabilitation Session":  ["93798"],
+    "Physiotherapy Session":           ["97110"],
+}
+
+# ── Add CPT codes to ICD_DB entries ──────────────────────────────────────────
+_ICD_CPT_MAP = {
+    "Hypertension":                       ["93000","82947","80048","84443"],
+    "Hypertensive Heart Disease":         ["93000","93306","82947","80048"],
+    "Hypertensive Heart Disease with Heart Failure": ["93000","93306","83880","80048"],
+    "Stable Angina":                      ["93000","93015","80061","84484"],
+    "Unstable Angina":                    ["93000","84484","85025","80061"],
+    "Myocardial Infarction":              ["93000","84484","82553","83880","71046"],
+    "Post-MI":                            ["93000","93306","80061","93798"],
+    "Post-MI Rehab":                      ["93798","93000","93015","80061"],
+    "Coronary Artery Disease":            ["93452","93015","80061","93000"],
+    "Heart Failure":                      ["93306","83880","83937","80048","93000"],
+    "Heart Failure (HFrEF)":              ["93306","83880","83937","80048"],
+    "Atrial Fibrillation":                ["93000","93224","85610","80048"],
+    "Arrhythmia":                         ["93000","93224","80048"],
+    "Stroke":                             ["93000","70553","85025","85610"],
+    "Stroke/TIA":                         ["93000","70553","93880","85610"],
+    "Stroke Rehab":                       ["97001","97530","93798","93000"],
+    "Type 2 Diabetes":                    ["83036","82947","80061","82565","33935"],
+    "Dyslipidaemia":                      ["80061","83721","83718","86141"],
+    "Obesity":                            ["82947","83036","80061","80048"],
+    "CKD":                                ["82565","33935","82044","84520","84132"],
+    "COPD/Asthma":                        ["71046","94760","93000","85025"],
+    "Osteoarthritis":                     ["97001","97110","97530"],
+    "Joint Pain / Arthralgia":            ["97001","97110"],
+    "Back Pain":                          ["97001","97012","97110"],
+    "Cardiomegaly":                       ["71046","93306","93000","83880"],
+    "Palpitations":                       ["93000","93224","80048","84132"],
+    "Vertigo / Dizziness":                ["93000","70553","80048"],
+}
+for _dx, _cpts in _ICD_CPT_MAP.items():
+    if _dx in ICD_DB:
+        ICD_DB[_dx]["cpt_codes"] = _cpts
+        ICD_DB[_dx]["cpt_descriptions"] = [
+            CPT_DB.get(c, {}).get("description", "—") for c in _cpts
+        ]
+
+
+def render_cpt_panel(investigations: list, context: str = ""):
+    """
+    Render a CPT procedure code panel for a list of investigation name strings.
+    investigations: list of keys from INVESTIGATION_CPT_MAP
+    """
+    if not investigations:
+        return
+    rows = []
+    for inv in investigations:
+        cpts = INVESTIGATION_CPT_MAP.get(inv, [])
+        for cpt in cpts:
+            rec = CPT_DB.get(cpt, {})
+            rows.append({
+                "Investigation": inv,
+                "CPT Code": cpt,
+                "Description": rec.get("description", "—"),
+                "Category": rec.get("category", "—"),
+                "NHIS Tariff (₦)": f"₦{rec.get('nhis_tariff', 0):,}",
+                "Unit": rec.get("unit", "—"),
+            })
+    if not rows:
+        return
+    df = pd.DataFrame(rows)
+    total = sum(CPT_DB.get(c, {}).get("nhis_tariff", 0)
+                for inv in investigations
+                for c in INVESTIGATION_CPT_MAP.get(inv, []))
+    with st.expander(f"🧾 CPT Procedure Codes — {context}", expanded=False):
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.markdown(f"**Estimated Total NHIS Tariff: ₦{total:,}**")
+        st.caption("NHIS tariff rates are approximate 2025 Nigeria values. Actual reimbursement depends on NHIS scheme tier and facility level.")
+
+
+def render_cpt_from_icd(diagnoses: list, context: str = ""):
+    """
+    Render CPT codes derived from ICD diagnoses (shows typical workup per diagnosis).
+    """
+    if not diagnoses:
+        return
+    rows = []
+    seen = set()
+    for dx in diagnoses:
+        key = NLP_DX_TO_ICD.get(dx, dx)
+        rec = ICD_DB.get(key, {})
+        for cpt in rec.get("cpt_codes", []):
+            if cpt in seen:
+                continue
+            seen.add(cpt)
+            cpt_rec = CPT_DB.get(cpt, {})
+            rows.append({
+                "Diagnosis": dx,
+                "CPT Code": cpt,
+                "Procedure": cpt_rec.get("description", "—"),
+                "Category": cpt_rec.get("category", "—"),
+                "NHIS Tariff (₦)": f"₦{cpt_rec.get('nhis_tariff', 0):,}",
+            })
+    if not rows:
+        return
+    df = pd.DataFrame(rows)
+    total = sum(CPT_DB.get(c, {}).get("nhis_tariff", 0) for c in seen)
+    with st.expander(f"🧾 CPT Procedure Codes — {context}", expanded=False):
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.markdown(f"**Estimated NHIS Procedure Total: ₦{total:,}**")
+        st.caption("Typical investigations for the identified diagnoses. NHIS 2025 approximate tariffs.")
+
+
+def cpt_export_df(investigations: list = None, diagnoses: list = None) -> pd.DataFrame:
+    """Build exportable CPT DataFrame from either investigation list or diagnosis list."""
+    rows = []
+    seen = set()
+    if investigations:
+        for inv in investigations:
+            for cpt in INVESTIGATION_CPT_MAP.get(inv, []):
+                if cpt in seen:
+                    continue
+                seen.add(cpt)
+                rec = CPT_DB.get(cpt, {})
+                rows.append({"Investigation/Procedure": inv, "CPT Code": cpt,
+                             "Description": rec.get("description", "—"),
+                             "Category": rec.get("category", "—"),
+                             "NHIS Tariff (₦)": rec.get("nhis_tariff", 0),
+                             "Unit": rec.get("unit", "—")})
+    if diagnoses:
+        for dx in diagnoses:
+            key = NLP_DX_TO_ICD.get(dx, dx)
+            rec = ICD_DB.get(key, {})
+            for cpt in rec.get("cpt_codes", []):
+                if cpt in seen:
+                    continue
+                seen.add(cpt)
+                cpt_rec = CPT_DB.get(cpt, {})
+                rows.append({"Investigation/Procedure": dx, "CPT Code": cpt,
+                             "Description": cpt_rec.get("description", "—"),
+                             "Category": cpt_rec.get("category", "—"),
+                             "NHIS Tariff (₦)": cpt_rec.get("nhis_tariff", 0),
+                             "Unit": cpt_rec.get("unit", "—")})
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
@@ -1347,7 +1956,7 @@ models = load_models()
 xgb_explainer = load_explainer(models.get("cardio_xgb"))
 
 with st.sidebar:
-    # ── Cardiovascular Logo ────────────────────────────────────────
+    # ── JoiHealth Logo ────────────────────────────────────────
     import os
     logo_paths = [
         "Heart.png",
@@ -1376,7 +1985,7 @@ with st.sidebar:
     st.markdown("<div style='text-align:center;margin:-8px 0 4px;'><span style='font-size:13px;font-weight:600;color:#0D1B2A;'>CardioAI</span></div>", unsafe_allow_html=True)
     st.caption("Explainable AI for Cardiovascular Risk & Patient Retention")
     st.divider()
-    page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","🔬 Medical Imaging","💊 Pharmaco-Intelligence","🏥 Operational Intelligence","🏷 ICD / ICF Codes","ℹ️ About"], label_visibility="collapsed")
+    page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","🔬 Medical Imaging","💊 Pharmaco-Intelligence","🏥 Operational Intelligence","🏷 Clinical Codes","ℹ️ About"], label_visibility="collapsed")
     st.divider()
     if get_secret("GOOGLE_API_KEY"):
         st.success("Gemini Vision: Ready")
@@ -2131,6 +2740,8 @@ if "Risk Prediction" in page:
             if risk_prob >= 0.60:       _risk_dx_list.append("Myocardial Infarction")
             render_icd_panel(_risk_dx_list, context="Risk Assessment")
             _risk_icd_df = icd_export_df(_risk_dx_list)
+            render_cpt_from_icd(_risk_dx_list, context="Risk Assessment — Recommended Procedures")
+            _risk_cpt_df = cpt_export_df(diagnoses=_risk_dx_list)
 
             # ── Export: Risk Prediction ───────────────────
             st.divider()
@@ -2152,21 +2763,25 @@ if "Risk Prediction" in page:
             )
             _risk_excel = {"Risk Assessment": _risk_export_df}
             if not _risk_icd_df.empty:
-                _risk_excel["ICD-ICF Codes"] = _risk_icd_df
+                _risk_excel["ICD-ICF-CPT Codes"] = _risk_icd_df
+            if not _risk_cpt_df.empty:
+                _risk_excel["CPT Procedures"] = _risk_cpt_df
+            _risk_pdf_sections = [
+                ("Patient Input & Results", _risk_export_df),
+                ("Clinical Recommendation", _risk_reco),
+            ]
+            if not _risk_icd_df.empty:
+                _risk_pdf_sections.append(("ICD / ICF / CPT Codes", _risk_icd_df))
+            if not _risk_cpt_df.empty:
+                _risk_pdf_sections.append(("CPT Procedure Bill", _risk_cpt_df))
             export_buttons(
                 "Risk Prediction",
                 csv_df=_risk_export_df,
                 excel_sheets=_risk_excel,
                 pdf_title="CardioAI — Cardiovascular Risk Assessment Report",
-                pdf_sections=[
-                    ("Patient Input & Results", _risk_export_df),
-                    ("Clinical Recommendation", _risk_reco),
-                ] + ([("ICD-10 / ICD-11 / ICF Codes", _risk_icd_df)] if not _risk_icd_df.empty else []),
+                pdf_sections=_risk_pdf_sections,
                 docx_title="CardioAI — Cardiovascular Risk Assessment Report",
-                docx_sections=[
-                    ("Patient Input & Results", _risk_export_df),
-                    ("Clinical Recommendation", _risk_reco),
-                ] + ([("ICD-10 / ICD-11 / ICF Codes", _risk_icd_df)] if not _risk_icd_df.empty else []),
+                docx_sections=_risk_pdf_sections,
                 file_stem="risk_assessment",
             )
 
@@ -3116,6 +3731,7 @@ elif "Clinical NLP" in page:
                     _nlp_dx = entities.get("dx", [])
                     if _nlp_dx:
                         render_icd_panel(_nlp_dx, context="Clinical Document Extraction")
+                        render_cpt_from_icd(_nlp_dx, context="Clinical Document — Recommended Procedures")
                     _nlp_icd_df = icd_export_df(_nlp_dx) if _nlp_dx else pd.DataFrame()
 
                     # ── Export: Clinical NLP ──────────────
@@ -3910,6 +4526,8 @@ elif "Pharmaco-Intelligence" in page:
                 # ── ICD / ICF Codes: Drug Recommender ─────────────────────
                 render_icd_panel(pt_diag, context="Pharmaco-Intelligence")
                 _pharma_icd_df = icd_export_df(pt_diag)
+                render_cpt_from_icd(pt_diag, context="Pharmaco — Recommended Procedures")
+                _pharma_cpt_df = cpt_export_df(diagnoses=pt_diag)
 
                 # ── Export: Drug Recommendations ──────────
                 st.divider()
@@ -5253,6 +5871,9 @@ elif "Operational Intelligence" in page:
         _ops_diag_list = list({p["diagnosis"] for p in active if p.get("diagnosis","") != "Pending"})
         _ops_icd_df    = icd_export_df(_ops_diag_list)
         render_icd_panel(_ops_diag_list, context="Patient Census — Active Diagnoses")
+        _ops_cpt_df = cpt_export_df(diagnoses=_ops_diag_list)
+        if not _ops_cpt_df.empty:
+            _ops_excel_sheets["CPT Procedures"] = _ops_cpt_df
 
         # Safe column subset — only select columns guaranteed to exist
         _census_export_cols = ["Patient ID", "Diagnosis", "ICD-10", "ICD-11",
@@ -5415,83 +6036,179 @@ Be specific, actionable, and concise. Reference the actual data from the operati
                 st.rerun()
 
 
-elif "ICD" in page:
-    st.title("🏷 ICD / ICF / SNOMED Clinical Code Reference")
+elif "Clinical Codes" in page:
+    st.title("🏷 Clinical Codes Reference")
     st.caption(
-        "Search and browse ICD-10, ICD-11, ICF, and SNOMED CT codes for all conditions "
-        "managed at JoiHealth Polyclinics. Includes NHIS billability and cardiac rehab relevance."
+        "Search and browse ICD-10, ICD-11, ICF, SNOMED CT, and CPT codes for all conditions "
+        "and procedures at JoiHealth Polyclinics. Includes NHIS tariffs and rehab relevance."
     )
 
-    # ── Search ────────────────────────────────────────────────────────────
-    search_q = st.text_input("🔍 Search diagnosis, ICD code, or SNOMED code", placeholder="e.g. hypertension, I10, heart failure...")
-    col_filter1, col_filter2 = st.columns(2)
-    with col_filter1:
-        cat_filter = st.multiselect(
-            "Filter by category",
-            options=sorted({v["category"] for v in ICD_DB.values()}),
-            default=[],
-        )
-    with col_filter2:
-        rehab_only = st.checkbox("Rehab-relevant conditions only", value=False)
+    code_tab1, code_tab2 = st.tabs(["🔵 ICD / ICF / SNOMED — Diagnoses", "🟠 CPT — Procedures & Tariffs"])
 
-    # ── Apply filters ─────────────────────────────────────────────────────
-    results = {}
-    for dx, rec in ICD_DB.items():
-        if rehab_only and not rec["rehab_relevant"]:
-            continue
-        if cat_filter and rec["category"] not in cat_filter:
-            continue
-        if search_q:
-            q = search_q.lower()
-            if not any(q in s.lower() for s in [dx, rec["icd10"], rec["icd11"],
-                                                 rec["snomed"], rec["description"], rec["category"]]):
-                continue
-        results[dx] = rec
+    # ── TAB 1: ICD / ICF / SNOMED ─────────────────────────────────────────
+    with code_tab1:
+        search_q = st.text_input("🔍 Search diagnosis, ICD code, or SNOMED code",
+                                  placeholder="e.g. hypertension, I10, heart failure...",
+                                  key="icd_search")
+        col_filter1, col_filter2 = st.columns(2)
+        with col_filter1:
+            cat_filter = st.multiselect("Filter by category",
+                options=sorted({v["category"] for v in ICD_DB.values()}), default=[], key="icd_cat")
+        with col_filter2:
+            rehab_only = st.checkbox("Rehab-relevant conditions only", value=False, key="icd_rehab")
 
-    st.markdown(f"**{len(results)} codes found**")
-    st.divider()
+        results = {}
+        for dx, rec in ICD_DB.items():
+            if rehab_only and not rec["rehab_relevant"]: continue
+            if cat_filter and rec["category"] not in cat_filter: continue
+            if search_q:
+                q = search_q.lower()
+                if not any(q in s.lower() for s in [dx, rec["icd10"], rec["icd11"],
+                                                     rec["snomed"], rec["description"], rec["category"]]):
+                    continue
+            results[dx] = rec
 
-    # ── Render results ────────────────────────────────────────────────────
-    if results:
-        for dx, rec in results.items():
-            with st.expander(f"**{dx}** — ICD-10: `{rec['icd10']}` · ICD-11: `{rec['icd11']}`"):
-                r1, r2, r3 = st.columns([2, 2, 2])
-                with r1:
-                    st.markdown("**Coding**")
-                    st.markdown(f"🔵 ICD-10: `{rec['icd10']}`")
-                    st.markdown(f"🟢 ICD-11: `{rec['icd11']}`")
-                    st.markdown(f"🟣 SNOMED CT: `{rec['snomed']}`")
-                with r2:
-                    st.markdown("**Classification**")
-                    st.markdown(f"*{rec['description']}*")
-                    st.markdown(f"Category: **{rec['category']}**")
-                    st.markdown("✅ NHIS Billable" if rec["nhis_billable"] else "❌ Not NHIS Billable")
-                    st.markdown("🏥 Rehab Relevant" if rec["rehab_relevant"] else "")
-                with r3:
-                    st.markdown("**ICF Functional Codes**")
-                    for code, label in zip(rec["icf_codes"], rec["icf_labels"]):
-                        st.markdown(f"• `{code}` — {label}")
+        st.markdown(f"**{len(results)} conditions found**")
         st.divider()
 
-        # ── Full reference export ─────────────────────────────────────────
-        _all_icd_df = icd_export_df(list(results.keys()))
-        export_buttons(
-            "ICD Reference",
-            csv_df=_all_icd_df,
-            excel_sheets={"ICD-ICF Reference": _all_icd_df},
-            pdf_title="CardioAI — ICD-10 / ICD-11 / ICF Code Reference",
-            pdf_sections=[("Clinical Code Reference", _all_icd_df)],
-            docx_title="CardioAI — ICD-10 / ICD-11 / ICF Code Reference",
-            docx_sections=[("Clinical Code Reference", _all_icd_df)],
-            file_stem="icd_reference",
-        )
-    else:
-        st.info("No codes match your search. Try a different term or clear the filters.")
+        if results:
+            for dx, rec in results.items():
+                cpts = rec.get("cpt_codes", [])
+                with st.expander(f"**{dx}** — ICD-10: `{rec['icd10']}` · ICD-11: `{rec['icd11']}`"):
+                    r1, r2, r3, r4 = st.columns([2, 1.8, 2, 2.2])
+                    with r1:
+                        st.markdown("**ICD / SNOMED**")
+                        st.markdown(f"🔵 ICD-10: `{rec['icd10']}`")
+                        st.markdown(f"🟢 ICD-11: `{rec['icd11']}`")
+                        st.markdown(f"🟣 SNOMED: `{rec['snomed']}`")
+                        st.caption(rec["description"])
+                    with r2:
+                        st.markdown("**Classification**")
+                        st.markdown(f"**{rec['category']}**")
+                        st.markdown("✅ NHIS Billable" if rec["nhis_billable"] else "❌ Not NHIS Billable")
+                        st.markdown("🏥 Rehab Relevant" if rec["rehab_relevant"] else "")
+                    with r3:
+                        st.markdown("**ICF Functional Codes**")
+                        for code, label in zip(rec["icf_codes"], rec["icf_labels"]):
+                            st.caption(f"`{code}` — {label}")
+                    with r4:
+                        st.markdown("**CPT Procedures**")
+                        total_tariff = 0
+                        for cpt in cpts:
+                            cr = CPT_DB.get(cpt, {})
+                            tariff = cr.get("nhis_tariff", 0)
+                            total_tariff += tariff
+                            st.caption(f"🟠 `{cpt}` {cr.get('description','—')}  ₦{tariff:,}")
+                        if total_tariff:
+                            st.markdown(f"**Total: ₦{total_tariff:,}**")
+            st.divider()
+            _all_icd_df = icd_export_df(list(results.keys()))
+            export_buttons(
+                "ICD Reference",
+                csv_df=_all_icd_df,
+                excel_sheets={"ICD-ICF-CPT Reference": _all_icd_df},
+                pdf_title="CardioAI — ICD / ICF / CPT Clinical Code Reference",
+                pdf_sections=[("Clinical Code Reference", _all_icd_df)],
+                docx_title="CardioAI — ICD / ICF / CPT Clinical Code Reference",
+                docx_sections=[("Clinical Code Reference", _all_icd_df)],
+                file_stem="icd_icf_cpt_reference",
+            )
+        else:
+            st.info("No conditions match your search. Try a different term or clear the filters.")
+
+    # ── TAB 2: CPT Procedures ─────────────────────────────────────────────
+    with code_tab2:
+        cpt_search = st.text_input("🔍 Search CPT code, procedure name, or category",
+                                    placeholder="e.g. ECG, 93000, lipid, troponin...",
+                                    key="cpt_search")
+        cpt_cat_filter = st.multiselect("Filter by category",
+            options=sorted({v["category"] for v in CPT_DB.values()}), default=[], key="cpt_cat")
+
+        cpt_results = {}
+        for code, rec in CPT_DB.items():
+            if cpt_cat_filter and rec["category"] not in cpt_cat_filter: continue
+            if cpt_search:
+                q = cpt_search.lower()
+                if not any(q in s.lower() for s in [code, rec["description"], rec["category"]]):
+                    continue
+            cpt_results[code] = rec
+
+        st.markdown(f"**{len(cpt_results)} procedures found**")
+        st.divider()
+
+        if cpt_results:
+            cpt_rows = []
+            for code, rec in cpt_results.items():
+                cpt_rows.append({
+                    "CPT Code":        code,
+                    "Description":     rec["description"],
+                    "Category":        rec["category"],
+                    "NHIS Tariff (₦)": rec["nhis_tariff"],
+                    "Unit":            rec["unit"],
+                })
+            _cpt_df = pd.DataFrame(cpt_rows)
+            st.dataframe(_cpt_df, use_container_width=True, hide_index=True,
+                         column_config={
+                             "NHIS Tariff (₦)": st.column_config.NumberColumn(format="₦%d"),
+                         })
+            total = _cpt_df["NHIS Tariff (₦)"].sum()
+            st.caption(f"Total estimated tariff for filtered procedures: ₦{total:,}")
+            st.divider()
+
+            # Bill builder
+            with st.expander("🧾 Procedure Bill Builder — select procedures to generate a bill"):
+                selected_procs = st.multiselect(
+                    "Select procedures to include in bill",
+                    options=list(cpt_results.keys()),
+                    format_func=lambda c: f"{c} — {CPT_DB[c]['description']} (₦{CPT_DB[c]['nhis_tariff']:,})",
+                    key="bill_builder"
+                )
+                if selected_procs:
+                    bill_rows = [{
+                        "CPT Code": c,
+                        "Procedure": CPT_DB[c]["description"],
+                        "Category": CPT_DB[c]["category"],
+                        "NHIS Tariff (₦)": CPT_DB[c]["nhis_tariff"],
+                        "Unit": CPT_DB[c]["unit"],
+                    } for c in selected_procs]
+                    bill_df = pd.DataFrame(bill_rows)
+                    bill_total = bill_df["NHIS Tariff (₦)"].sum()
+                    st.dataframe(bill_df, use_container_width=True, hide_index=True)
+                    st.success(f"**Total Bill: ₦{bill_total:,}**")
+                    export_buttons(
+                        "Procedure Bill",
+                        csv_df=bill_df,
+                        excel_sheets={"Procedure Bill": bill_df},
+                        pdf_title="CardioAI — JoiHealth Procedure Bill",
+                        pdf_sections=[
+                            ("Procedure Bill", bill_df),
+                            ("Total", f"Estimated NHIS Tariff Total: ₦{bill_total:,}"),
+                        ],
+                        docx_title="CardioAI — JoiHealth Procedure Bill",
+                        docx_sections=[
+                            ("Procedure Bill", bill_df),
+                            ("Total", f"Estimated NHIS Tariff Total: ₦{bill_total:,}"),
+                        ],
+                        file_stem="procedure_bill",
+                    )
+            st.divider()
+            export_buttons(
+                "CPT Reference",
+                csv_df=_cpt_df,
+                excel_sheets={"CPT Reference": _cpt_df},
+                pdf_title="CardioAI — CPT Procedure Code Reference",
+                pdf_sections=[("CPT Procedures", _cpt_df)],
+                docx_title="CardioAI — CPT Procedure Code Reference",
+                docx_sections=[("CPT Procedures", _cpt_df)],
+                file_stem="cpt_reference",
+            )
+        else:
+            st.info("No procedures match your search.")
 
     st.divider()
     st.caption(
         "**Sources:** ICD-10 WHO 2019 · ICD-11 WHO 2024 · ICF WHO 2001 · SNOMED CT IHTSDO · "
-        "NHIS Nigeria Essential Drug List · 2026 ACC/AHA Guidelines"
+        "CPT AMA 2025 · NHIS Nigeria Tariff Schedule 2025 · 2026 ACC/AHA Guidelines"
     )
 
 elif "About" in page:
