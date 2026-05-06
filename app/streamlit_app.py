@@ -653,7 +653,7 @@ def icd_export_df(diagnoses: list) -> pd.DataFrame:
 
 
 st.set_page_config(
-    page_title="CardioAI — Nova",
+    page_title="CardioAI — JoiHealth",
     page_icon="🫀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1347,13 +1347,13 @@ models = load_models()
 xgb_explainer = load_explainer(models.get("cardio_xgb"))
 
 with st.sidebar:
-    # ── Cardiovascular Logo ────────────────────────────────────────
+    # ── JoiHealth Logo ────────────────────────────────────────
     import os
     logo_paths = [
-        "Heart.png",
-        "app/Heart.png",
-        os.path.join(os.path.dirname(__file__), "Heart.png"),
-        os.path.join(os.path.dirname(__file__), "..", "Heart.png"),
+        "Joi_Health_PM.jpeg",
+        "app/Joi_Health_PM.jpeg",
+        os.path.join(os.path.dirname(__file__), "Joi_Health_PM.jpeg"),
+        os.path.join(os.path.dirname(__file__), "..", "Joi_Health_PM.jpeg"),
     ]
     logo_loaded = False
     for logo_path in logo_paths:
@@ -5639,4 +5639,4 @@ elif "About" in page:
     decisions made based on this system's outputs.
     """)
 
-    st.caption("© 2025 Gboh-Igbara D. Charles — JoiHealth | cardioai-joihealth.streamlit.app")
+    st.caption("© 2025 Gboh-Igbara D. Charles — JoiHealth | cardioai-nova.streamlit.app")
