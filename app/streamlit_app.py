@@ -1394,39 +1394,660 @@ with st.sidebar:
 
 if "Risk Prediction" in page:
     st.title("🫀 Cardiovascular Risk Prediction")
-    st.caption("Enter patient clinical data to generate a cardiovascular risk assessment with explainable AI.")
+    st.caption("Comprehensive clinical data entry — vitals, ECG, labs, biochemistry, microbiology, serology, endocrinology and more.")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown('<div class="section-header">Patient Demographics & Vitals</div>', unsafe_allow_html=True)
-        age      = st.slider("Age (years)", 29, 80, 55)
-        sex      = st.selectbox("Sex", [0,1], format_func=lambda x: "Female" if x==0 else "Male")
-        trestbps = st.slider("Resting Blood Pressure (mmHg)", 90, 210, 130)
-        chol     = st.slider("Serum Cholesterol (mg/dl)", 100, 600, 240)
-        thalach  = st.slider("Maximum Heart Rate Achieved (bpm)", 60, 210, 150)
-    with c2:
-        st.markdown('<div class="section-header">Clinical Measurements</div>', unsafe_allow_html=True)
-        cp      = st.selectbox("Chest Pain Type", [0,1,2,3], format_func=lambda x: ["Typical Angina","Atypical Angina","Non-Anginal Pain","Asymptomatic"][x])
-        fbs     = st.selectbox("Fasting Blood Sugar > 120 mg/dl", [0,1], format_func=lambda x: "No" if x==0 else "Yes")
-        restecg = st.selectbox("Resting ECG", [0,1,2], format_func=lambda x: ["Normal","ST Abnormality","LV Hypertrophy"][x])
-        exang   = st.selectbox("Exercise Induced Angina", [0,1], format_func=lambda x: "No" if x==0 else "Yes")
-        oldpeak = st.slider("ST Depression (oldpeak)", 0.0, 6.5, 1.0, 0.1)
-        slope   = st.selectbox("Slope of Peak ST Segment", [0,1,2], format_func=lambda x: ["Downsloping","Flat","Upsloping"][x])
-        ca      = st.slider("Major Vessels Coloured (0-4)", 0, 4, 0)
-        thal    = st.selectbox("Thalassemia", [0,1,2,3], format_func=lambda x: ["Normal","Fixed Defect","Normal (2)","Reversible Defect"][x])
+    # ══════════════════════════════════════════════════════════════════════
+    # CLINICAL INPUT TABS
+    # ══════════════════════════════════════════════════════════════════════
+    (tab_demo, tab_vitals, tab_ecg, tab_fbs_dm, tab_lipid,
+     tab_euc, tab_chem, tab_elec, tab_endo, tab_sero,
+     tab_micro, tab_tox, tab_cyto, tab_allergy, tab_gi) = st.tabs([
+        "👤 Demographics",
+        "🩺 Vital Signs",
+        "📟 ECG",
+        "🩸 FBS / Diabetes",
+        "🧪 Lipid Profile",
+        "🔬 E/U/Cr & Renal",
+        "⚗️ Chemistry",
+        "⚡ Electrolytes",
+        "🔭 Endocrinology",
+        "🛡 Serology",
+        "🦠 Microbiology",
+        "💊 Toxicology",
+        "🔬 Cytology",
+        "🌿 Allergy",
+        "🫃 GIT / GYN",
+    ])
 
-    with st.expander("📋 Patient Retention Assessment (optional)"):
-        rc1, rc2 = st.columns(2)
-        with rc1:
-            exercise_diff = st.slider("Exercise Difficulty (1-5)", 1, 5, 3)
-            q_burden      = st.slider("Questionnaire Burden (1-10)", 1, 10, 5)
-            waiting_time  = st.slider("Waiting Time (minutes)", 5, 90, 20)
-        with rc2:
-            travel_dist   = st.slider("Travel Distance (km)", 1, 80, 15)
-            perceived_imp = st.slider("Perceived Improvement (1-5)", 1, 5, 3)
-            has_insurance = st.selectbox("Has Insurance", [0,1], format_func=lambda x: "No" if x==0 else "Yes")
+    # ── TAB 1: Demographics & Symptoms ───────────────────────────────────
+    with tab_demo:
+        st.subheader("Patient Demographics & Presenting Symptoms")
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            age  = st.number_input("Age (years)", 18, 100, 55)
+            sex  = st.selectbox("Sex", [1, 0], format_func=lambda x: "Male" if x == 1 else "Female")
+            weight_kg = st.number_input("Weight (kg)", 30.0, 200.0, 75.0, 0.5)
+            height_cm = st.number_input("Height (cm)", 120.0, 220.0, 170.0, 0.5)
+            bmi = round(weight_kg / ((height_cm / 100) ** 2), 1)
+            st.metric("BMI", f"{bmi} kg/m²",
+                      delta="Obese" if bmi >= 30 else "Overweight" if bmi >= 25 else "Normal")
+        with d2:
+            cp = st.selectbox("Chest Pain Type", [0, 1, 2, 3],
+                format_func=lambda x: ["Typical Angina","Atypical Angina",
+                                       "Non-Anginal Pain","Asymptomatic"][x])
+            exang    = st.selectbox("Exercise-Induced Angina", [0, 1],
+                                    format_func=lambda x: "No" if x == 0 else "Yes")
+            dyspnoea = st.selectbox("Dyspnoea on Exertion", ["None","Mild","Moderate","Severe"])
+            palpitations = st.selectbox("Palpitations", ["None","Occasional","Frequent"])
+            syncope  = st.selectbox("Syncope / Pre-syncope", ["No","Yes"])
+            oedema   = st.selectbox("Peripheral Oedema", ["None","Mild","Moderate","Severe"])
+        with d3:
+            smoking  = st.selectbox("Smoking Status", ["Never","Ex-smoker","Current smoker"])
+            alcohol  = st.selectbox("Alcohol Use", ["None","Occasional","Regular"])
+            exercise = st.selectbox("Physical Activity Level", ["Sedentary","Light","Moderate","Active"])
+            fam_hx   = st.selectbox("Family History of CVD", ["No","Yes — 1st degree < 65 yrs"])
+            duration = st.number_input("Symptom Duration (months)", 0, 360, 6)
 
+    # ── TAB 2: Vital Signs ────────────────────────────────────────────────
+    with tab_vitals:
+        st.subheader("International Standard Vital Signs")
+        v1, v2, v3 = st.columns(3)
+        with v1:
+            st.markdown("**Blood Pressure**")
+            sbp = st.number_input("Systolic BP (mmHg)", 70, 260, 130,
+                                  help="Normal: <120 | Stage 1 HTN: 130–139 | Stage 2: ≥140 | Crisis: ≥180")
+            dbp = st.number_input("Diastolic BP (mmHg)", 40, 160, 80,
+                                  help="Normal: <80 | Stage 1 HTN: 80–89 | Stage 2: ≥90 | Crisis: ≥120")
+            trestbps = sbp   # model compatibility
+            map_val  = round((sbp + 2 * dbp) / 3, 1)
+            pp_val   = sbp - dbp
+            st.caption(f"MAP: {map_val} mmHg · Pulse Pressure: {pp_val} mmHg")
+            bp_class = ("Hypertensive Crisis" if sbp >= 180 or dbp >= 120
+                        else "Stage 2 HTN" if sbp >= 140 or dbp >= 90
+                        else "Stage 1 HTN" if sbp >= 130 or dbp >= 80
+                        else "Elevated" if sbp >= 120
+                        else "Normal")
+            if "HTN" in bp_class or "Crisis" in bp_class:
+                st.error(f"⚠ {bp_class}")
+            elif bp_class == "Elevated":
+                st.warning(f"⚠ {bp_class}")
+            else:
+                st.success(f"✓ {bp_class}")
+        with v2:
+            st.markdown("**Heart Rate & Respiratory**")
+            hr_rest  = st.number_input("Resting Heart Rate (bpm)", 30, 200, 72,
+                                       help="Normal: 60–100 | Bradycardia: <60 | Tachycardia: >100")
+            thalach  = st.number_input("Max Heart Rate Achieved (bpm)", 60, 220, 150,
+                                       help="220 – age = predicted max HR")
+            rr       = st.number_input("Respiratory Rate (breaths/min)", 8, 40, 16,
+                                       help="Normal: 12–20")
+            spo2     = st.number_input("SpO₂ (%)", 70.0, 100.0, 98.0, 0.1,
+                                       help="Normal: ≥95% | Concerning: <92%")
+            temp_c   = st.number_input("Temperature (°C)", 34.0, 42.0, 36.6, 0.1)
+            if spo2 < 92:   st.error(f"⚠ SpO₂ {spo2}% — critically low")
+            elif spo2 < 95: st.warning(f"⚠ SpO₂ {spo2}% — low")
+            else:           st.success(f"✓ SpO₂ {spo2}%")
+        with v3:
+            st.markdown("**Other Vitals**")
+            gcs      = st.number_input("GCS Score (3–15)", 3, 15, 15,
+                                       help="15 = fully alert | <8 = coma")
+            pain_vrs = st.slider("Pain Score (0–10)", 0, 10, 0,
+                                 help="0 = no pain | 10 = worst imaginable")
+            waist_cm = st.number_input("Waist Circumference (cm)", 50.0, 180.0, 90.0, 0.5,
+                                       help="Risk: Men >102cm | Women >88cm")
+            ht_class = ("Hypothermic" if temp_c < 35 else "Febrile" if temp_c > 37.5 else "Normal")
+            rr_class = ("Tachypnoeic" if rr > 20 else "Bradypnoeic" if rr < 12 else "Normal")
+            st.caption(f"Temp: {ht_class} · RR: {rr_class} · GCS: {'Alert' if gcs==15 else 'Impaired' if gcs>=9 else 'Coma'}")
+
+    # ── TAB 3: ECG ────────────────────────────────────────────────────────
+    with tab_ecg:
+        st.subheader("12-Lead ECG Parameters")
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            st.markdown("**Basic ECG**")
+            ecg_hr   = st.number_input("ECG Heart Rate (bpm)", 30, 250, 75)
+            ecg_rhythm = st.selectbox("Rhythm", ["Sinus Rhythm","Sinus Tachycardia",
+                "Sinus Bradycardia","Atrial Fibrillation","Atrial Flutter",
+                "SVT","Ventricular Tachycardia","Heart Block","Paced Rhythm","Other"])
+            ecg_axis = st.selectbox("QRS Axis", ["Normal (0° to +90°)","Left Axis Deviation",
+                "Right Axis Deviation","Extreme Axis Deviation"])
+            restecg  = st.selectbox("Resting ECG Classification", [0, 1, 2],
+                format_func=lambda x: ["Normal","ST-T Abnormality","LV Hypertrophy"][x])
+        with e2:
+            st.markdown("**Intervals**")
+            pr_ms   = st.number_input("PR Interval (ms)", 80, 400, 160,
+                                      help="Normal: 120–200ms | >200ms = 1st degree block")
+            qrs_ms  = st.number_input("QRS Duration (ms)", 60, 200, 90,
+                                      help="Normal: 70–110ms | >120ms = bundle branch block")
+            qt_ms   = st.number_input("QT Interval (ms)", 200, 700, 400,
+                                      help="Normal: 350–450ms")
+            qtc_ms  = st.number_input("QTc (Corrected QT, ms)", 200, 700, 420,
+                                      help="Normal: <440ms (M) / <460ms (F) | Prolonged: ≥500ms = high risk TdP")
+            if qtc_ms >= 500: st.error("⚠ QTc ≥500ms — HIGH RISK Torsades de Pointes")
+            elif qtc_ms >= 460: st.warning("⚠ QTc prolonged")
+        with e3:
+            st.markdown("**Waveforms & Segments**")
+            p_wave   = st.selectbox("P Wave", ["Normal","Absent","Bifid (P mitrale)",
+                                               "Peaked (P pulmonale)","Inverted"])
+            st.markdown("**ST Segment**")
+            oldpeak  = st.number_input("ST Depression (oldpeak, mm)", 0.0, 10.0, 1.0, 0.1,
+                                       help="≥1mm horizontal/downsloping = significant")
+            st_elev  = st.number_input("ST Elevation (mm)", 0.0, 10.0, 0.0, 0.1,
+                                       help="≥1mm in ≥2 contiguous leads = possible STEMI")
+            slope    = st.selectbox("ST Slope", [0, 1, 2],
+                format_func=lambda x: ["Downsloping","Flat","Upsloping"][x])
+            t_wave   = st.selectbox("T Wave", ["Normal","Inverted","Flat",
+                                               "Peaked (Hyperacute)","Biphasic"])
+            st.markdown("**Voltages**")
+            sv1      = st.number_input("SV1 (mm)", 0.0, 40.0, 10.0, 0.5)
+            rv5      = st.number_input("RV5 (mm)", 0.0, 40.0, 15.0, 0.5)
+            sv1_rv5  = sv1 + rv5
+            if sv1_rv5 > 35:
+                st.warning(f"⚠ SV1+RV5 = {sv1_rv5:.1f}mm — LVH criteria met (Sokolow-Lyon)")
+            else:
+                st.success(f"✓ SV1+RV5 = {sv1_rv5:.1f}mm — within normal limits")
+            ca       = st.slider("Major Vessels on Angiography (0–4)", 0, 4, 0)
+            thal     = st.selectbox("Thalassemia / Perfusion", [0, 1, 2, 3],
+                format_func=lambda x: ["Normal","Fixed Defect","Normal (2)","Reversible Defect"][x])
+
+    # ── TAB 4: FBS / Diabetes ─────────────────────────────────────────────
+    with tab_fbs:
+        st.subheader("Blood Glucose — Fasting, Random & Diabetes Assessment")
+        g1, g2 = st.columns(2)
+        with g1:
+            st.markdown("**Fasting Blood Sugar (FBS)**")
+            fbs_val  = st.number_input("Fasting Blood Sugar (mg/dL)", 40.0, 600.0, 95.0, 0.5,
+                                       help="Normal: 70–99 | Pre-DM: 100–125 | DM: ≥126")
+            fbs_mmol = round(fbs_val / 18.0, 2)
+            st.caption(f"= {fbs_mmol} mmol/L")
+            fbs_class = ("Hypoglycaemia" if fbs_val < 70
+                         else "Normal" if fbs_val < 100
+                         else "Pre-Diabetic (IFG)" if fbs_val < 126
+                         else "Diabetic Range")
+            if fbs_val >= 126:   st.error(f"⚠ FBS: {fbs_class}")
+            elif fbs_val >= 100: st.warning(f"⚠ FBS: {fbs_class}")
+            elif fbs_val < 70:   st.error(f"⚠ FBS: {fbs_class}")
+            else:                st.success(f"✓ FBS: {fbs_class}")
+            fbs = 1 if fbs_val > 120 else 0   # model compatibility
+
+            st.markdown("**Random Blood Sugar (RBS)**")
+            rbs_val  = st.number_input("Random Blood Sugar (mg/dL)", 40.0, 800.0, 120.0, 0.5,
+                                       help="Normal: <140 | Pre-DM: 140–199 | DM: ≥200")
+            rbs_mmol = round(rbs_val / 18.0, 2)
+            st.caption(f"= {rbs_mmol} mmol/L")
+            rbs_class = ("Hypoglycaemia" if rbs_val < 70
+                         else "Normal" if rbs_val < 140
+                         else "Impaired Glucose Tolerance" if rbs_val < 200
+                         else "Diabetic Range")
+            if rbs_val >= 200:   st.error(f"⚠ RBS: {rbs_class}")
+            elif rbs_val >= 140: st.warning(f"⚠ RBS: {rbs_class}")
+            else:                st.success(f"✓ RBS: {rbs_class}")
+        with g2:
+            st.markdown("**HbA1c & Long-Term Control**")
+            hba1c    = st.number_input("HbA1c (%)", 3.0, 20.0, 5.5, 0.1,
+                                       help="Non-DM: <5.7 | Pre-DM: 5.7–6.4 | DM: ≥6.5 | Target (DM): <7.0")
+            hba1c_mmol = round((hba1c - 2.15) * 10.929, 1)
+            st.caption(f"= {hba1c_mmol} mmol/mol (IFCC)")
+            hba1c_class = ("Non-Diabetic" if hba1c < 5.7
+                           else "Pre-Diabetic" if hba1c < 6.5
+                           else "Diabetic — Well Controlled" if hba1c < 7.0
+                           else "Diabetic — Suboptimal" if hba1c < 8.0
+                           else "Diabetic — Poor Control")
+            if hba1c >= 8.0:    st.error(f"⚠ HbA1c: {hba1c_class}")
+            elif hba1c >= 6.5:  st.warning(f"⚠ HbA1c: {hba1c_class}")
+            elif hba1c >= 5.7:  st.warning(f"⚠ HbA1c: {hba1c_class}")
+            else:               st.success(f"✓ HbA1c: {hba1c_class}")
+            dm_type   = st.selectbox("Diabetes Status", ["No Diabetes","Type 1 DM","Type 2 DM",
+                                                          "Pre-Diabetes","Gestational DM","LADA"])
+            insulin_rx = st.selectbox("On Insulin", ["No","Yes — Basal","Yes — Basal-Bolus",
+                                                      "Yes — Pump"])
+            ogtt_2hr  = st.number_input("OGTT 2-hr glucose (mg/dL)", 0.0, 600.0, 0.0, 0.5,
+                                        help="Normal: <140 | IGT: 140–199 | DM: ≥200 (0 = not done)")
+            c_peptide = st.number_input("C-Peptide (nmol/L)", 0.0, 5.0, 0.0, 0.01,
+                                        help="Normal: 0.27–1.27 (0 = not done)")
+
+    # ── TAB 5: Fasting Lipid Profile ──────────────────────────────────────
+    with tab_lipid:
+        st.subheader("Fasting Lipid Profile")
+        l1, l2 = st.columns(2)
+        with l1:
+            chol     = st.number_input("Total Cholesterol (mg/dL)", 50.0, 700.0, 200.0, 1.0,
+                                       help="Desirable: <200 | Borderline: 200–239 | High: ≥240")
+            ldl      = st.number_input("LDL Cholesterol (mg/dL)", 10.0, 400.0, 130.0, 1.0,
+                                       help="Optimal: <100 | Near optimal: 100–129 | High: ≥160")
+            hdl      = st.number_input("HDL Cholesterol (mg/dL)", 10.0, 120.0, 50.0, 1.0,
+                                       help="Low (risk): Men <40 | Women <50 | High (protective): ≥60")
+            tg       = st.number_input("Triglycerides (mg/dL)", 10.0, 2000.0, 150.0, 1.0,
+                                       help="Normal: <150 | Borderline: 150–199 | High: 200–499 | Very High: ≥500")
+            vldl     = round(tg / 5, 1)
+            tc_hdl   = round(chol / hdl, 2) if hdl > 0 else 0
+            ldl_hdl  = round(ldl / hdl, 2) if hdl > 0 else 0
+        with l2:
+            non_hdl  = round(chol - hdl, 1)
+            st.markdown("**Calculated Ratios**")
+            st.metric("Non-HDL Cholesterol", f"{non_hdl} mg/dL", help="Target: <130 mg/dL")
+            st.metric("TC/HDL Ratio", f"{tc_hdl}", help="Low risk: <4.0")
+            st.metric("LDL/HDL Ratio", f"{ldl_hdl}", help="Low risk: <2.5")
+            st.metric("VLDL (estimated)", f"{vldl} mg/dL", help="Normal: <30 mg/dL")
+            apo_b    = st.number_input("ApoB (mg/dL)", 0.0, 300.0, 0.0, 1.0,
+                                       help="Optimal: <80 | High risk: >100 (0 = not done)")
+            lpa      = st.number_input("Lp(a) (mg/dL)", 0.0, 300.0, 0.0, 1.0,
+                                       help="Elevated: >50 mg/dL = high CVD risk (0 = not done)")
+            # Flags
+            if chol >= 240: st.error("⚠ Total Cholesterol: High")
+            elif chol >= 200: st.warning("⚠ Total Cholesterol: Borderline High")
+            if ldl >= 160:  st.error("⚠ LDL: High")
+            elif ldl >= 130: st.warning("⚠ LDL: Borderline High")
+            if hdl < 40:    st.error("⚠ HDL: Low — increased CVD risk")
+            if tg >= 500:   st.error("⚠ TG: Very High — pancreatitis risk")
+            elif tg >= 200: st.warning("⚠ TG: High")
+
+    # ── TAB 6: E/U/Cr & Renal ────────────────────────────────────────────
+    with tab_euc:
+        st.subheader("Electrolytes / Urea / Creatinine & Renal Function")
+        r1, r2 = st.columns(2)
+        with r1:
+            urea     = st.number_input("Urea (mmol/L)", 0.0, 80.0, 5.0, 0.1,
+                                       help="Normal: 2.5–7.1")
+            creat    = st.number_input("Creatinine (μmol/L)", 0.0, 2000.0, 80.0, 1.0,
+                                       help="Normal: Men 62–115 | Women 44–80")
+            # eGFR via CKD-EPI simplified
+            egfr = None
+            if creat > 0 and age > 0:
+                kappa = 0.7 if sex == 0 else 0.9
+                alpha = -0.241 if sex == 0 else -0.302
+                sex_f = 1.012 if sex == 0 else 1.0
+                creat_norm = (creat / 88.4) / kappa
+                egfr = round(142 * (min(creat_norm, 1) ** alpha) *
+                              (max(creat_norm, 1) ** -1.200) *
+                              (0.9938 ** age) * sex_f, 1)
+                ckd_stage = ("G1 Normal" if egfr >= 90
+                             else "G2 Mildly Reduced" if egfr >= 60
+                             else "G3a Mild-Moderate" if egfr >= 45
+                             else "G3b Moderate-Severe" if egfr >= 30
+                             else "G4 Severely Reduced" if egfr >= 15
+                             else "G5 Kidney Failure")
+                if egfr < 30:    st.error(f"⚠ eGFR: {egfr} — {ckd_stage}")
+                elif egfr < 60:  st.warning(f"⚠ eGFR: {egfr} — {ckd_stage}")
+                else:            st.success(f"✓ eGFR: {egfr} mL/min/1.73m² — {ckd_stage}")
+            uric_acid = st.number_input("Uric Acid (μmol/L)", 0.0, 1000.0, 300.0, 1.0,
+                                        help="Normal: Men 200–430 | Women 140–360 | Gout risk: >480")
+            urine_pcr = st.number_input("Urine PCR (mg/mmol)", 0.0, 500.0, 0.0, 0.1,
+                                        help="Normal: <15 | Microalbuminuria: 15–50 | Macroalbuminuria: >50")
+        with r2:
+            bun      = st.number_input("BUN (mg/dL)", 0.0, 200.0, 14.0, 0.5,
+                                       help="Normal: 7–20")
+            bun_cr_ratio = round(bun / (creat / 88.4), 1) if creat > 0 else 0
+            st.caption(f"BUN/Creatinine ratio: {bun_cr_ratio} (Normal: 10–20)")
+            cystatin_c = st.number_input("Cystatin C (mg/L)", 0.0, 10.0, 0.0, 0.01,
+                                         help="Normal: 0.53–0.95 (0 = not done)")
+            urine_alb  = st.number_input("Urine Albumin (mg/L)", 0.0, 3000.0, 0.0, 1.0,
+                                         help="Normal: <30 | Microalbuminuria: 30–300 | Macroalbuminuria: >300")
+            if urine_alb >= 300: st.error("⚠ Macroalbuminuria — significant renal/CV risk")
+            elif urine_alb >= 30: st.warning("⚠ Microalbuminuria — early nephropathy marker")
+
+    # ── TAB 7: Chemistry ─────────────────────────────────────────────────
+    with tab_chem:
+        st.subheader("Clinical Chemistry — Liver, Cardiac Markers & Proteins")
+        ch1, ch2, ch3 = st.columns(3)
+        with ch1:
+            st.markdown("**Liver Function**")
+            alt      = st.number_input("ALT/SGPT (U/L)", 0.0, 2000.0, 25.0, 1.0,
+                                       help="Normal: Men <56 | Women <36")
+            ast      = st.number_input("AST/SGOT (U/L)", 0.0, 2000.0, 22.0, 1.0,
+                                       help="Normal: Men <40 | Women <32")
+            alp      = st.number_input("ALP (U/L)", 0.0, 2000.0, 80.0, 1.0,
+                                       help="Normal: 44–147")
+            ggt      = st.number_input("GGT (U/L)", 0.0, 1000.0, 30.0, 1.0,
+                                       help="Normal: Men <55 | Women <38")
+            tbil     = st.number_input("Total Bilirubin (μmol/L)", 0.0, 500.0, 12.0, 0.5,
+                                       help="Normal: 3–21")
+            albumin  = st.number_input("Albumin (g/L)", 0.0, 60.0, 40.0, 0.5,
+                                       help="Normal: 35–50")
+            tp_chem  = st.number_input("Total Protein (g/L)", 0.0, 100.0, 70.0, 0.5,
+                                       help="Normal: 60–80")
+        with ch2:
+            st.markdown("**Cardiac Biomarkers**")
+            troponin = st.number_input("Troponin I (ng/L)", 0.0, 50000.0, 0.0, 1.0,
+                                       help="Normal: <52 ng/L | NSTEMI: ≥52 | STEMI: very high (0 = not done)")
+            ck_mb    = st.number_input("CK-MB (U/L)", 0.0, 1000.0, 0.0, 1.0,
+                                       help="Normal: <25 U/L (0 = not done)")
+            ck_total = st.number_input("Total CK (U/L)", 0.0, 10000.0, 0.0, 1.0,
+                                       help="Normal: Men <200 | Women <170 (0 = not done)")
+            bnp      = st.number_input("BNP (pg/mL)", 0.0, 5000.0, 0.0, 1.0,
+                                       help="Normal: <100 | HF: >400 | Grey zone: 100–400 (0 = not done)")
+            nt_probnp = st.number_input("NT-proBNP (pg/mL)", 0.0, 35000.0, 0.0, 1.0,
+                                        help="HF unlikely: <300 | Likely (age 75+): >1800 (0 = not done)")
+            myoglobin = st.number_input("Myoglobin (μg/L)", 0.0, 5000.0, 0.0, 1.0,
+                                        help="Normal: Men <72 | Women <58 (0 = not done)")
+            if troponin >= 52: st.error(f"⚠ Troponin elevated: {troponin} ng/L")
+            if bnp >= 400:     st.error(f"⚠ BNP: {bnp} — Heart Failure likely")
+            elif bnp >= 100:   st.warning(f"⚠ BNP: {bnp} — Heart Failure possible")
+        with ch3:
+            st.markdown("**Inflammatory & Other**")
+            crp      = st.number_input("CRP (mg/L)", 0.0, 500.0, 1.0, 0.1,
+                                       help="Normal: <5 | Cardiac risk (hs-CRP): <1=low, 1–3=mod, >3=high")
+            hscrp    = st.number_input("hs-CRP (mg/L)", 0.0, 100.0, 0.0, 0.1,
+                                       help="Low: <1 | Moderate: 1–3 | High: >3 (CVD risk) (0 = not done)")
+            esr      = st.number_input("ESR (mm/hr)", 0.0, 150.0, 10.0, 1.0,
+                                       help="Normal: Men <15 | Women <20")
+            ferritin = st.number_input("Ferritin (μg/L)", 0.0, 5000.0, 50.0, 1.0,
+                                       help="Normal: Men 24–336 | Women 11–307")
+            ldh      = st.number_input("LDH (U/L)", 0.0, 5000.0, 200.0, 1.0,
+                                       help="Normal: 135–225")
+            homocys  = st.number_input("Homocysteine (μmol/L)", 0.0, 100.0, 0.0, 0.1,
+                                       help="Normal: 5–15 | High CVD risk: >15 (0 = not done)")
+            if hscrp > 3:  st.error("⚠ hs-CRP >3 — High cardiovascular risk")
+            elif hscrp > 1: st.warning("⚠ hs-CRP 1–3 — Moderate cardiovascular risk")
+
+    # ── TAB 8: Electrolytes ──────────────────────────────────────────────
+    with tab_elec:
+        st.subheader("Serum Electrolytes")
+        el1, el2 = st.columns(2)
+        with el1:
+            na       = st.number_input("Sodium Na⁺ (mmol/L)", 100.0, 170.0, 140.0, 0.5,
+                                       help="Normal: 135–145 | Hypo: <135 | Hyper: >145")
+            k        = st.number_input("Potassium K⁺ (mmol/L)", 1.5, 8.0, 4.0, 0.1,
+                                       help="Normal: 3.5–5.0 | Dangerous low: <3.0 | High: >5.5")
+            cl       = st.number_input("Chloride Cl⁻ (mmol/L)", 80.0, 130.0, 102.0, 0.5,
+                                       help="Normal: 98–106")
+            co2      = st.number_input("Bicarbonate HCO₃⁻ (mmol/L)", 5.0, 45.0, 24.0, 0.5,
+                                       help="Normal: 22–29")
+            ag       = round(na - (cl + co2), 1)
+            st.caption(f"Anion Gap: {ag} (Normal: 8–12)")
+            if ag > 12: st.warning(f"⚠ Elevated Anion Gap: {ag}")
+        with el2:
+            ca_ion   = st.number_input("Calcium Ca²⁺ (mmol/L)", 1.0, 4.0, 2.4, 0.05,
+                                       help="Normal: 2.15–2.55 | Hypo: <2.1 | Hyper: >2.6")
+            mg       = st.number_input("Magnesium Mg²⁺ (mmol/L)", 0.3, 3.0, 0.9, 0.05,
+                                       help="Normal: 0.75–1.0")
+            phos     = st.number_input("Phosphate PO₄³⁻ (mmol/L)", 0.2, 3.0, 1.1, 0.05,
+                                       help="Normal: 0.8–1.45")
+            # Flag dangerous levels
+            if k < 3.0:    st.error(f"⚠ K⁺ {k} — Dangerous Hypokalaemia (arrhythmia risk)")
+            elif k < 3.5:  st.warning(f"⚠ K⁺ {k} — Hypokalaemia")
+            elif k > 5.5:  st.error(f"⚠ K⁺ {k} — Hyperkalaemia")
+            if na < 125:   st.error(f"⚠ Na⁺ {na} — Severe Hyponatraemia")
+            elif na < 135: st.warning(f"⚠ Na⁺ {na} — Hyponatraemia")
+
+    # ── TAB 9: Endocrinology ─────────────────────────────────────────────
+    with tab_endo:
+        st.subheader("Endocrinology Panel")
+        en1, en2 = st.columns(2)
+        with en1:
+            st.markdown("**Thyroid Function**")
+            tsh      = st.number_input("TSH (mIU/L)", 0.0, 100.0, 2.0, 0.01,
+                                       help="Normal: 0.4–4.0 | Hypo: >4.0 | Hyper: <0.4")
+            ft4      = st.number_input("Free T4 (pmol/L)", 0.0, 50.0, 15.0, 0.1,
+                                       help="Normal: 9–25")
+            ft3      = st.number_input("Free T3 (pmol/L)", 0.0, 20.0, 4.5, 0.1,
+                                       help="Normal: 2.6–5.7")
+            if tsh > 4.0:   st.warning("⚠ TSH elevated — Hypothyroidism (↑CV risk)")
+            elif tsh < 0.4: st.warning("⚠ TSH suppressed — Hyperthyroidism (arrhythmia risk)")
+            st.markdown("**Adrenal**")
+            cortisol = st.number_input("Morning Cortisol (nmol/L)", 0.0, 2000.0, 400.0, 1.0,
+                                       help="Normal AM: 171–536 | Cushing's: >700")
+            dheas    = st.number_input("DHEA-S (μmol/L)", 0.0, 20.0, 0.0, 0.1,
+                                       help="Men: 2.2–15.2 | Women: 1.0–11.6 (0 = not done)")
+            aldost   = st.number_input("Aldosterone (pmol/L)", 0.0, 2000.0, 0.0, 1.0,
+                                       help="Normal: 30–400 (0 = not done)")
+        with en2:
+            st.markdown("**Reproductive Hormones**")
+            insulin_level = st.number_input("Fasting Insulin (mU/L)", 0.0, 200.0, 0.0, 0.5,
+                                            help="Normal: 2–25 | Insulin resistance: >25 (0 = not done)")
+            homa_ir  = round((fbs_val/18.0 * insulin_level) / 22.5, 2) if insulin_level > 0 else 0
+            if homa_ir > 0:
+                ir_flag = "Insulin Resistant" if homa_ir > 2.5 else "Normal Sensitivity"
+                st.caption(f"HOMA-IR: {homa_ir} — {ir_flag}")
+            testosterone = st.number_input("Testosterone (nmol/L)", 0.0, 50.0, 0.0, 0.1,
+                                           help="Men: 9.9–27.8 | Women: 0.3–1.7 (0 = not done)")
+            oestradiol = st.number_input("Oestradiol E2 (pmol/L)", 0.0, 10000.0, 0.0, 1.0,
+                                         help="(0 = not done / not applicable)")
+            prolactin  = st.number_input("Prolactin (mIU/L)", 0.0, 10000.0, 0.0, 1.0,
+                                         help="Normal: Men <360 | Women <600 (0 = not done)")
+            psa        = st.number_input("PSA (ng/mL) — Males only", 0.0, 100.0, 0.0, 0.01,
+                                         help="Normal: <4.0 | Elevated: >10 (0 = not done)")
+            if psa > 10: st.error("⚠ PSA >10 — Prostate assessment recommended")
+            elif psa > 4: st.warning("⚠ PSA elevated (4–10) — Grey zone")
+
+    # ── TAB 10: Serology ─────────────────────────────────────────────────
+    with tab_sero:
+        st.subheader("Serology — Immunology & Infectious Disease Markers")
+        s1, s2 = st.columns(2)
+        with s1:
+            st.markdown("**Cardiovascular / Autoimmune**")
+            ana      = st.selectbox("ANA (Anti-Nuclear Antibody)", ["Not done","Negative","Positive — Low titre","Positive — High titre"])
+            anti_ds_dna = st.selectbox("Anti-dsDNA", ["Not done","Negative","Positive"])
+            rf       = st.selectbox("Rheumatoid Factor", ["Not done","Negative","Positive (<20)","Positive (>20)"])
+            anti_ccp = st.selectbox("Anti-CCP", ["Not done","Negative","Positive"])
+            antiphospholipid = st.selectbox("Antiphospholipid Antibody", ["Not done","Negative","Positive"])
+            c3_comp  = st.number_input("Complement C3 (g/L)", 0.0, 3.0, 0.0, 0.01,
+                                       help="Normal: 0.90–1.80 (0 = not done)")
+            c4_comp  = st.number_input("Complement C4 (g/L)", 0.0, 1.0, 0.0, 0.01,
+                                       help="Normal: 0.16–0.47 (0 = not done)")
+        with s2:
+            st.markdown("**Infectious Disease Serology**")
+            hbsag    = st.selectbox("HBsAg (Hepatitis B Surface Antigen)", ["Not done","Non-reactive","Reactive"])
+            hbcab    = st.selectbox("HBcAb (Hepatitis B Core Ab)", ["Not done","Negative","Positive"])
+            hcv_ab   = st.selectbox("Anti-HCV (Hepatitis C Ab)", ["Not done","Non-reactive","Reactive"])
+            hiv      = st.selectbox("HIV 1 & 2 Ab/Ag", ["Not done","Non-reactive","Reactive — confirm"])
+            vdrl     = st.selectbox("VDRL / RPR (Syphilis)", ["Not done","Non-reactive","Reactive"])
+            tpha     = st.selectbox("TPHA (Syphilis confirmatory)", ["Not done","Negative","Positive"])
+            toxoplasma_igg = st.selectbox("Toxoplasma IgG", ["Not done","Negative","Positive"])
+            cmv_igg  = st.selectbox("CMV IgG", ["Not done","Negative","Positive"])
+            ebv_vca  = st.selectbox("EBV VCA IgG", ["Not done","Negative","Positive"])
+            if hbsag == "Reactive":    st.error("⚠ HBsAg Reactive — Active Hepatitis B")
+            if hcv_ab == "Reactive":   st.error("⚠ Anti-HCV Reactive — Confirm Hepatitis C")
+            if hiv == "Reactive — confirm": st.error("⚠ HIV Reactive — Confirmatory test required")
+
+    # ── TAB 11: Microbiology ─────────────────────────────────────────────
+    with tab_micro:
+        st.subheader("Microbiology — Bacteriology, Parasitology & Virology")
+        m1, m2 = st.columns(2)
+        with m1:
+            st.markdown("**Bacteriology**")
+            blood_cx = st.selectbox("Blood Culture", ["Not done","No growth","Gram-positive cocci",
+                "Gram-negative rods","Gram-negative cocci","Polymicrobial","Contaminated"])
+            urine_cx = st.selectbox("Urine Culture", ["Not done","No growth","E. coli",
+                "Klebsiella","Pseudomonas","Staphylococcus","Enterococcus","Other"])
+            sputum_cx = st.selectbox("Sputum Culture / AFB", ["Not done","No growth",
+                "Normal flora","AFB Positive","Streptococcus pneumoniae",
+                "Haemophilus influenzae","Klebsiella","Other"])
+            wound_cx = st.selectbox("Wound / Swab Culture", ["Not done","No growth",
+                "MRSA","MSSA","Streptococcus","Pseudomonas","Other"])
+            procalc  = st.number_input("Procalcitonin (ng/mL)", 0.0, 100.0, 0.0, 0.01,
+                                       help="Normal: <0.1 | Bacterial sepsis: >0.5 | Septic shock: >10")
+            if procalc > 0.5: st.error(f"⚠ Procalcitonin {procalc} — Bacterial infection/sepsis likely")
+        with m2:
+            st.markdown("**Parasitology**")
+            malaria  = st.selectbox("Malaria RDT / Film", ["Not done","Negative",
+                "P. falciparum Positive","P. vivax Positive","P. malariae Positive","Mixed"])
+            stool_mcs = st.selectbox("Stool M/C/S", ["Not done","No pathogen",
+                "Salmonella","Shigella","E. coli pathogenic","Giardia","Cryptosporidium",
+                "Hookworm","Ascaris","Strongyloides","Other"])
+            st.markdown("**Virology**")
+            influenza = st.selectbox("Influenza RDT", ["Not done","Negative","Influenza A","Influenza B"])
+            covid19   = st.selectbox("SARS-CoV-2 (COVID-19)", ["Not done","Negative","Positive"])
+            dengue    = st.selectbox("Dengue RDT (NS1/IgM/IgG)", ["Not done","Negative",
+                                                                     "NS1 Positive","IgM Positive","IgG Positive"])
+            if malaria != "Not done" and malaria != "Negative": st.error(f"⚠ {malaria}")
+            if covid19 == "Positive": st.error("⚠ COVID-19 Positive")
+
+    # ── TAB 12: Toxicology ───────────────────────────────────────────────
+    with tab_tox:
+        st.subheader("Toxicology & Drug Levels")
+        tx1, tx2 = st.columns(2)
+        with tx1:
+            st.markdown("**Therapeutic Drug Monitoring**")
+            digoxin  = st.number_input("Digoxin level (nmol/L)", 0.0, 10.0, 0.0, 0.01,
+                                       help="Therapeutic: 0.5–2.0 | Toxic: >2.5 (0 = not on drug)")
+            warfarin_inr = st.number_input("INR (if on Warfarin)", 0.0, 10.0, 0.0, 0.1,
+                                           help="Normal: 0.9–1.1 | AF target: 2–3 | Valve target: 2.5–3.5")
+            phenytoin = st.number_input("Phenytoin (μmol/L)", 0.0, 160.0, 0.0, 1.0,
+                                        help="Therapeutic: 40–80 (0 = not on drug)")
+            vancomycin = st.number_input("Vancomycin trough (mg/L)", 0.0, 100.0, 0.0, 0.1,
+                                         help="Therapeutic: 10–20 (0 = not on drug)")
+            lithium   = st.number_input("Lithium (mmol/L)", 0.0, 3.0, 0.0, 0.01,
+                                        help="Therapeutic: 0.6–1.2 | Toxic: >1.5 (0 = not on drug)")
+            if digoxin > 2.5:  st.error(f"⚠ Digoxin toxic: {digoxin} nmol/L")
+            if warfarin_inr > 4: st.error(f"⚠ INR {warfarin_inr} — Bleeding risk high")
+            elif warfarin_inr > 3: st.warning(f"⚠ INR {warfarin_inr} — Above target")
+        with tx2:
+            st.markdown("**Substance / Overdose Screen**")
+            alcohol_level = st.number_input("Blood Alcohol (mg/dL)", 0.0, 500.0, 0.0, 1.0,
+                                            help="Intoxication: >80 | Coma risk: >300")
+            paracetamol  = st.number_input("Paracetamol (μmol/L)", 0.0, 3000.0, 0.0, 1.0,
+                                           help="Therapeutic: <132 | Toxic: >200 | Treatment threshold: Rumack-Matthew nomogram")
+            salicylate   = st.number_input("Salicylate (mmol/L)", 0.0, 10.0, 0.0, 0.01,
+                                           help="Therapeutic: 1.1–2.2 | Toxic: >3.6")
+            urine_drugs  = st.multiselect("Urine Drug Screen (Positive for)",
+                                          ["Cannabis","Cocaine","Opiates","Amphetamines",
+                                           "Benzodiazepines","Barbiturates","Tricyclics","PCP","MDMA"],
+                                          default=[])
+            if alcohol_level > 80: st.error(f"⚠ Blood Alcohol: {alcohol_level} mg/dL — Intoxicated")
+            if paracetamol > 200:  st.error(f"⚠ Paracetamol toxic: {paracetamol} μmol/L — Antidote needed")
+
+    # ── TAB 13: Cytology ─────────────────────────────────────────────────
+    with tab_cyto:
+        st.subheader("Cytology — Non-Gynaecological & Gynaecological")
+        cy1, cy2 = st.columns(2)
+        with cy1:
+            st.markdown("**Non-Gynaecological Cytology**")
+            sputum_cyt = st.selectbox("Sputum Cytology", ["Not done","Normal","Atypical cells",
+                "Suspicious for malignancy","Malignant — NSCLC","Malignant — SCLC","Other"])
+            pleural_cyt = st.selectbox("Pleural Fluid Cytology", ["Not done","No malignant cells",
+                "Atypical cells","Adenocarcinoma","Mesothelioma","Other"])
+            urine_cyt  = st.selectbox("Urine Cytology", ["Not done","Normal","Atypical",
+                "Suspicious","High-grade urothelial carcinoma","Other"])
+            ascites_cyt = st.selectbox("Ascitic Fluid Cytology", ["Not done","No malignant cells",
+                "Adenocarcinoma","Mesothelioma","Other"])
+            fnac       = st.selectbox("FNAC (Specify site)", ["Not done","Benign","Atypical",
+                "Suspicious","Malignant — Carcinoma","Malignant — Lymphoma","Other"])
+        with cy2:
+            st.markdown("**Gynaecological Cytology (LBC — Liquid-Based Cytology)**")
+            pap_smear  = st.selectbox("Cervical LBC / Pap Smear", ["Not done","NILM (Normal)",
+                "ASCUS","LSIL","HSIL","ASC-H","AGC","Carcinoma"])
+            hpv_test   = st.selectbox("HPV Test", ["Not done","Negative","HPV 16/18 Positive",
+                                                    "Other High-Risk HPV Positive"])
+            endometrial_cyt = st.selectbox("Endometrial Cytology", ["Not done","Normal",
+                "Atypical endometrial cells","Endometrial carcinoma"])
+            if pap_smear in ["HSIL","ASC-H","AGC","Carcinoma"]:
+                st.error(f"⚠ Cervical LBC: {pap_smear} — Urgent colposcopy referral")
+            elif pap_smear in ["ASCUS","LSIL"]:
+                st.warning(f"⚠ Cervical LBC: {pap_smear} — Follow-up required")
+            if hpv_test != "Not done" and hpv_test != "Negative":
+                st.error(f"⚠ {hpv_test} — High-risk HPV detected")
+
+    # ── TAB 14: Allergy ──────────────────────────────────────────────────
+    with tab_allergy:
+        st.subheader("Allergy & Immunology Panel")
+        al1, al2 = st.columns(2)
+        with al1:
+            st.markdown("**Total IgE & RAST**")
+            ige_total = st.number_input("Total IgE (IU/mL)", 0.0, 10000.0, 0.0, 1.0,
+                                        help="Normal: <100 | Atopy: >200 | Parasitic: >1000")
+            if ige_total > 200: st.warning(f"⚠ Total IgE {ige_total} — Atopic/allergic condition")
+            drug_allergy = st.multiselect("Known Drug Allergies", [
+                "Penicillin","Cephalosporins","Sulphonamides","NSAIDs","Aspirin",
+                "ACE Inhibitors","Statins","Contrast Dye","Latex","Metformin","Other"])
+            food_allergy = st.multiselect("Known Food Allergies", [
+                "Peanuts","Shellfish","Tree nuts","Milk","Eggs","Wheat/Gluten","Soy","Fish","Other"])
+            environmental = st.multiselect("Environmental Allergens", [
+                "House dust mite","Pollen","Mould","Animal dander","Cockroach","Other"])
+        with al2:
+            st.markdown("**Specific IgE / Skin Prick Tests**")
+            eosinophils = st.number_input("Eosinophil count (×10⁹/L)", 0.0, 5.0, 0.2, 0.01,
+                                          help="Normal: 0.04–0.44 | High: >0.5 = eosinophilia")
+            eosinophil_pct = st.number_input("Eosinophils (%)", 0.0, 60.0, 2.0, 0.1,
+                                             help="Normal: 1–4%")
+            skin_prick = st.selectbox("Skin Prick Test Result", ["Not done","Negative — no reaction",
+                "Positive — 1 allergen","Positive — 2–3 allergens","Positive — multiple"])
+            allergy_severity = st.selectbox("Worst Allergic Reaction", ["None","Mild (urticaria)",
+                "Moderate (bronchospasm)","Severe (anaphylaxis)"])
+            if allergy_severity == "Severe (anaphylaxis)": st.error("⚠ History of anaphylaxis — document and warn")
+            if eosinophils > 0.5: st.warning(f"⚠ Eosinophilia: {eosinophils} ×10⁹/L")
+
+    # ── TAB 15: GIT Biopsy & Gynaecology ────────────────────────────────
+    with tab_gi:
+        st.subheader("GIT Biopsy / Histopathology & Gynaecological Pathology")
+        gi1, gi2 = st.columns(2)
+        with gi1:
+            st.markdown("**GIT Biopsy / Histopathology**")
+            git_site = st.selectbox("GIT Biopsy Site", ["Not done","Oesophagus","Stomach — Antrum",
+                "Stomach — Body","Duodenum","Jejunum","Ileum","Colon — Right",
+                "Colon — Left","Rectum","Appendix","Liver","Pancreas"])
+            git_result = st.selectbox("GIT Histopathology Result", ["Not done",
+                "Normal mucosa","Chronic gastritis","H. pylori gastritis",
+                "Intestinal metaplasia","Dysplasia — Low grade","Dysplasia — High grade",
+                "Adenocarcinoma","GIST","Lymphoma","Crohn's disease","Ulcerative colitis",
+                "Coeliac disease","Hepatitis — chronic","Cirrhosis","HCC","Other"])
+            helicobacter = st.selectbox("H. pylori (Rapid Urease / Urea Breath)", ["Not done",
+                "Negative","Positive"])
+            if git_result in ["Dysplasia — High grade","Adenocarcinoma","HCC","Lymphoma"]:
+                st.error(f"⚠ Histopathology: {git_result} — Urgent oncology referral")
+            elif git_result in ["Dysplasia — Low grade","Intestinal metaplasia"]:
+                st.warning(f"⚠ Histopathology: {git_result} — Close surveillance required")
+            if helicobacter == "Positive": st.warning("⚠ H. pylori Positive — Eradication therapy indicated")
+        with gi2:
+            st.markdown("**Gynaecological Pathology**")
+            endometrial_histo = st.selectbox("Endometrial Biopsy", ["Not done","Normal",
+                "Simple hyperplasia","Complex hyperplasia","Atypical hyperplasia",
+                "Endometrial carcinoma — Grade 1","Endometrial carcinoma — Grade 2/3"])
+            ovarian_path = st.selectbox("Ovarian Pathology (imaging/biopsy)", ["Not done","Normal",
+                "Functional cyst","Dermoid","Endometrioma","Serous cystadenoma",
+                "Mucinous cystadenoma","Borderline tumour","Malignant — Serous","Other"])
+            ca125        = st.number_input("CA-125 (U/mL)", 0.0, 5000.0, 0.0, 1.0,
+                                           help="Normal: <35 | Ovarian cancer marker (0 = not done)")
+            ca199        = st.number_input("CA 19-9 (U/mL)", 0.0, 5000.0, 0.0, 1.0,
+                                           help="Normal: <37 | GIT/Pancreatic cancer marker (0 = not done)")
+            cea          = st.number_input("CEA (ng/mL)", 0.0, 500.0, 0.0, 0.1,
+                                           help="Normal: <5 | Colorectal, lung, breast cancer marker (0 = not done)")
+            afp          = st.number_input("AFP (ng/mL)", 0.0, 10000.0, 0.0, 1.0,
+                                           help="Normal: <10 | HCC / Germ cell tumour marker (0 = not done)")
+            if ca125 > 35:  st.warning(f"⚠ CA-125 elevated: {ca125} — Gynaecological / peritoneal pathology")
+            if afp > 400:   st.error(f"⚠ AFP: {afp} — HCC or germ cell tumour")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # GENERATE RISK ASSESSMENT BUTTON
+    # ══════════════════════════════════════════════════════════════════════
     st.divider()
+
+    # ── Expanded LRI — now incorporating all clinical panels ──────────────
+    def compute_lri_expanded(trestbps, chol, fbs_flag, exang, oldpeak,
+                              hba1c=5.5, ldl=130.0, hdl=50.0, tg=150.0,
+                              crp=1.0, bmi=25.0, smoking="Never",
+                              fam_hx="No", sbp=130, dbp=80):
+        """
+        Enhanced Lifestyle Risk Index — incorporates full lipid panel,
+        HbA1c, CRP, BMI, smoking and family history alongside original features.
+        Score: 0.0–1.0 (higher = higher risk)
+        """
+        def norm(v, lo, hi):
+            return max(0.0, min(1.0, (v - lo) / (hi - lo + 1e-8)))
+
+        score = (
+            norm(trestbps, 94, 200)    * 0.12 +
+            norm(chol, 126, 564)       * 0.08 +
+            fbs_flag                   * 0.10 +
+            exang                      * 0.08 +
+            norm(oldpeak, 0, 6.2)      * 0.08 +
+            norm(hba1c, 4.0, 12.0)    * 0.10 +
+            norm(ldl, 50, 300)         * 0.08 +
+            (1 - norm(hdl, 30, 90))    * 0.07 +   # low HDL = higher risk
+            norm(tg, 50, 500)          * 0.05 +
+            norm(crp, 0, 30)           * 0.07 +
+            norm(bmi, 18.5, 45)        * 0.06 +
+            (0.15 if smoking == "Current smoker" else 0.07 if smoking == "Ex-smoker" else 0) * 0.07 +
+            (0.10 if fam_hx != "No" else 0) * 0.04
+        )
+        return round(min(score, 1.0), 4)
+
+    lri_expanded = compute_lri_expanded(
+        trestbps=trestbps, chol=chol, fbs_flag=fbs, exang=exang, oldpeak=oldpeak,
+        hba1c=hba1c, ldl=ldl, hdl=hdl, tg=tg, crp=crp, bmi=bmi,
+        smoking=smoking, fam_hx=fam_hx, sbp=sbp, dbp=dbp,
+    )
+
     if st.button("🔍 Generate Risk Assessment", type="primary", use_container_width=True):
         X_input = build_features(age, sex, cp, trestbps, chol, fbs, restecg, thalach, exang, oldpeak, slope, ca, thal)
         scaler    = models.get("scaler")
