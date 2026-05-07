@@ -1262,7 +1262,7 @@ def cpt_export_df(investigations: list = None, diagnoses: list = None) -> pd.Dat
 
 
 st.set_page_config(
-    page_title="CardioAI — Nova",
+    page_title="CardioAI — JoiHealth",
     page_icon="🫀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1956,7 +1956,7 @@ models = load_models()
 xgb_explainer = load_explainer(models.get("cardio_xgb"))
 
 with st.sidebar:
-    # ── JoiHealth Logo ────────────────────────────────────────
+    # ── CardioAI Nova Logo ────────────────────────────────────────
     import os
     logo_paths = [
         "Heart.png",
@@ -3712,90 +3712,94 @@ elif "Clinical NLP" in page:
     st.divider()
     if st.button("🔍 Extract Clinical Entities", type="primary", use_container_width=True):
         if raw_text and raw_text.strip():
+            # Run extraction inside spinner (computation only)
             with st.spinner("Running NLP extraction..."):
                 try:
-                    entities = extract_entities(raw_text)
-                    _nlp_extraction_done = True
-                    _nlp_extraction_error = None
+                    _extracted = extract_entities(raw_text)
+                    st.session_state["nlp_entities"]       = _extracted
+                    st.session_state["nlp_extract_error"]  = None
                 except Exception as e:
-                    _nlp_extraction_done = False
-                    _nlp_extraction_error = str(e)
-                    entities = None
-
-            # Render results OUTSIDE spinner to avoid DeltaGenerator conflict
-            if _nlp_extraction_done and entities is not None:
-                try:
-                    show_entities(entities)
-
-                    # ── ICD / ICF Codes: NLP Extraction ──────────────────
-                    _nlp_dx = entities.get("dx", [])
-                    if _nlp_dx:
-                        render_icd_panel(_nlp_dx, context="Clinical Document Extraction")
-                        render_cpt_from_icd(_nlp_dx, context="Clinical Document — Recommended Procedures")
-                    _nlp_icd_df = icd_export_df(_nlp_dx) if _nlp_dx else pd.DataFrame()
-
-                    # ── Export: Clinical NLP ──────────────
-                    st.divider()
-                    _nlp_rows = []
-                    if entities.get("bp"):
-                        for b in entities["bp"]:
-                            _nlp_rows.append({"Parameter": "Blood Pressure",
-                                              "Value": f"{b['sys']}/{b['dia']} mmHg",
-                                              "Flag": "HYPERTENSIVE" if b["hyp"] else "Normal"})
-                    if entities.get("hr"):
-                        _nlp_rows.append({"Parameter": "Heart Rate",
-                                          "Value": f"{entities['hr'][0]} bpm", "Flag": ""})
-                    if entities.get("weight"):
-                        _nlp_rows.append({"Parameter": "Weight",
-                                          "Value": f"{entities['weight'][0]} kg", "Flag": ""})
-                    if entities.get("height"):
-                        _nlp_rows.append({"Parameter": "Height",
-                                          "Value": f"{entities['height'][0]} cm", "Flag": ""})
-                    if entities.get("bmi"):
-                        bv = entities["bmi"][0]
-                        _nlp_rows.append({"Parameter": "BMI",
-                                          "Value": f"{bv} kg/m²",
-                                          "Flag": "Obese" if bv >= 30 else "Overweight" if bv >= 25 else "Normal"})
-                    if entities.get("spo2"):
-                        sv = entities["spo2"][0]
-                        _nlp_rows.append({"Parameter": "SPO2",
-                                          "Value": f"{sv}%",
-                                          "Flag": "LOW" if sv < 95 else "Normal"})
-                    for dx in entities.get("dx", []):
-                        _nlp_rows.append({"Parameter": "Diagnosis", "Value": dx, "Flag": ""})
-                    for med in entities.get("meds", []):
-                        _nlp_rows.append({"Parameter": "Medication", "Value": med, "Flag": ""})
-                    lifestyle_flags = []
-                    if entities.get("smoking"):   lifestyle_flags.append("Smoking")
-                    if entities.get("alcohol"):   lifestyle_flags.append("Alcohol")
-                    if entities.get("sedentary"): lifestyle_flags.append("Sedentary")
-                    if entities.get("poor_diet"): lifestyle_flags.append("Poor Diet")
-                    if lifestyle_flags:
-                        _nlp_rows.append({"Parameter": "Lifestyle Flags",
-                                          "Value": ", ".join(lifestyle_flags), "Flag": "Present"})
-                    _nlp_df = pd.DataFrame(_nlp_rows) if _nlp_rows else pd.DataFrame(
-                        columns=["Parameter", "Value", "Flag"])
-                    _nlp_excel = {"Extracted Entities": _nlp_df}
-                    _nlp_pdf   = [("Extracted Clinical Parameters", _nlp_df)]
-                    if not _nlp_icd_df.empty:
-                        _nlp_excel["ICD-ICF Codes"] = _nlp_icd_df
-                        _nlp_pdf.append(("ICD-10 / ICD-11 / ICF Codes", _nlp_icd_df))
-                    export_buttons(
-                        "Clinical NLP",
-                        csv_df=_nlp_df,
-                        excel_sheets=_nlp_excel,
-                        pdf_title="CardioAI — Clinical Document Extraction Report",
-                        pdf_sections=_nlp_pdf,
-                        docx_title="CardioAI — Clinical Document Extraction Report",
-                        docx_sections=_nlp_pdf,
-                        file_stem="nlp_extraction",
-                    )
-                except Exception as e:
-                    st.error(f"Extraction error: {e}")
-            elif _nlp_extraction_error:
-                st.error(f"Extraction error: {_nlp_extraction_error}")
+                    st.session_state["nlp_entities"]       = None
+                    st.session_state["nlp_extract_error"]  = str(e)
         else:
             st.warning("Please provide a document first — upload a file or paste text above.")
+
+    # Render results completely outside any spinner/context manager
+    _nlp_entities = st.session_state.get("nlp_entities")
+    _nlp_err      = st.session_state.get("nlp_extract_error")
+
+    if _nlp_err:
+        st.error(f"Extraction error: {_nlp_err}")
+    elif _nlp_entities is not None:
+        try:
+            entities = _nlp_entities
+            show_entities(entities)
+
+            # ── ICD / ICF / CPT Codes: NLP Extraction ──────────────────
+            _nlp_dx = entities.get("dx", [])
+            if _nlp_dx:
+                render_icd_panel(_nlp_dx, context="Clinical Document Extraction")
+                render_cpt_from_icd(_nlp_dx, context="Clinical Document — Recommended Procedures")
+            _nlp_icd_df = icd_export_df(_nlp_dx) if _nlp_dx else pd.DataFrame()
+
+            # ── Export: Clinical NLP ──────────────
+            st.divider()
+            _nlp_rows = []
+            if entities.get("bp"):
+                for b in entities["bp"]:
+                    _nlp_rows.append({"Parameter": "Blood Pressure",
+                                      "Value": f"{b['sys']}/{b['dia']} mmHg",
+                                      "Flag": "HYPERTENSIVE" if b["hyp"] else "Normal"})
+            if entities.get("hr"):
+                _nlp_rows.append({"Parameter": "Heart Rate",
+                                  "Value": f"{entities['hr'][0]} bpm", "Flag": ""})
+            if entities.get("weight"):
+                _nlp_rows.append({"Parameter": "Weight",
+                                  "Value": f"{entities['weight'][0]} kg", "Flag": ""})
+            if entities.get("height"):
+                _nlp_rows.append({"Parameter": "Height",
+                                  "Value": f"{entities['height'][0]} cm", "Flag": ""})
+            if entities.get("bmi"):
+                bv = entities["bmi"][0]
+                _nlp_rows.append({"Parameter": "BMI",
+                                  "Value": f"{bv} kg/m²",
+                                  "Flag": "Obese" if bv >= 30 else "Overweight" if bv >= 25 else "Normal"})
+            if entities.get("spo2"):
+                sv = entities["spo2"][0]
+                _nlp_rows.append({"Parameter": "SPO2",
+                                  "Value": f"{sv}%",
+                                  "Flag": "LOW" if sv < 95 else "Normal"})
+            for dx in entities.get("dx", []):
+                _nlp_rows.append({"Parameter": "Diagnosis", "Value": dx, "Flag": ""})
+            for med in entities.get("meds", []):
+                _nlp_rows.append({"Parameter": "Medication", "Value": med, "Flag": ""})
+            lifestyle_flags = []
+            if entities.get("smoking"):   lifestyle_flags.append("Smoking")
+            if entities.get("alcohol"):   lifestyle_flags.append("Alcohol")
+            if entities.get("sedentary"): lifestyle_flags.append("Sedentary")
+            if entities.get("poor_diet"): lifestyle_flags.append("Poor Diet")
+            if lifestyle_flags:
+                _nlp_rows.append({"Parameter": "Lifestyle Flags",
+                                  "Value": ", ".join(lifestyle_flags), "Flag": "Present"})
+            _nlp_df = pd.DataFrame(_nlp_rows) if _nlp_rows else pd.DataFrame(
+                columns=["Parameter", "Value", "Flag"])
+            _nlp_excel = {"Extracted Entities": _nlp_df}
+            _nlp_pdf   = [("Extracted Clinical Parameters", _nlp_df)]
+            if not _nlp_icd_df.empty:
+                _nlp_excel["ICD-ICF Codes"] = _nlp_icd_df
+                _nlp_pdf.append(("ICD-10 / ICD-11 / ICF Codes", _nlp_icd_df))
+            export_buttons(
+                "Clinical NLP",
+                csv_df=_nlp_df,
+                excel_sheets=_nlp_excel,
+                pdf_title="CardioAI — Clinical Document Extraction Report",
+                pdf_sections=_nlp_pdf,
+                docx_title="CardioAI — Clinical Document Extraction Report",
+                docx_sections=_nlp_pdf,
+                file_stem="nlp_extraction",
+            )
+        except Exception as e:
+            st.error(f"Display error: {e}")
 
 # ══════════════════════════════════════════════════════════
 # PAGE 5 — MEDICAL IMAGING (CNN)
@@ -5870,10 +5874,8 @@ elif "Operational Intelligence" in page:
 
         _ops_diag_list = list({p["diagnosis"] for p in active if p.get("diagnosis","") != "Pending"})
         _ops_icd_df    = icd_export_df(_ops_diag_list)
+        _ops_cpt_df    = cpt_export_df(diagnoses=_ops_diag_list)
         render_icd_panel(_ops_diag_list, context="Patient Census — Active Diagnoses")
-        _ops_cpt_df = cpt_export_df(diagnoses=_ops_diag_list)
-        if not _ops_cpt_df.empty:
-            _ops_excel_sheets["CPT Procedures"] = _ops_cpt_df
 
         # Safe column subset — only select columns guaranteed to exist
         _census_export_cols = ["Patient ID", "Diagnosis", "ICD-10", "ICD-11",
@@ -5891,6 +5893,8 @@ elif "Operational Intelligence" in page:
         if not _ops_icd_df.empty:
             _ops_pdf_sections.append(("ICD-10 / ICD-11 / ICF Codes", _ops_icd_df))
             _ops_excel_sheets["ICD-ICF Codes"] = _ops_icd_df
+        if not _ops_cpt_df.empty:
+            _ops_excel_sheets["CPT Procedures"] = _ops_cpt_df
 
         export_buttons(
             "Operational Data",
@@ -6243,7 +6247,7 @@ elif "About" in page:
 
         **Research Area:** Explainable AI in Preventive Healthcare
 
-        **Live App:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
+        **Live App:** [cardioai-joihealth.streamlit.app](https://cardioai-nova.streamlit.app)
 
         **GitHub:** [github.com/gbohigbaradc/cardioai-project](https://github.com/gbohigbaradc/cardioai-project)
         """)
