@@ -78,7 +78,7 @@ def _df_to_docx_bytes(title: str, sections: list) -> bytes:
 
     sub = doc.add_paragraph(
         f"Generated: {pd.Timestamp.now().strftime('%d %B %Y, %H:%M')}  |  "
-        f"CardioAI — JoiHealth Polyclinics"
+        f"CardioAI — Nova"
     )
     if sub.runs:
         sub.runs[0].font.size = Pt(9)
@@ -131,7 +131,7 @@ def _df_to_docx_bytes(title: str, sections: list) -> bytes:
     run = disc.add_run(
         "⚕ CardioAI is a clinical decision support tool only. All outputs must be "
         "reviewed by a licensed clinician before any clinical action is taken. "
-        "— JoiHealth Polyclinics"
+        "— CardioAI Nova"
     )
     run.font.size = Pt(8)
     run.font.italic = True
@@ -159,7 +159,7 @@ def _df_to_pdf_bytes(title: str, sections: list) -> bytes:
         # Plain-text fallback — still downloadable
         lines = [title, "=" * 60,
                  f"Generated: {pd.Timestamp.now().strftime('%d %B %Y %H:%M')}",
-                 "CardioAI — JoiHealth Polyclinics",
+                 "CardioAI — Nova",
                  "(Install reportlab>=4.0.0 in requirements.txt for true PDF output)", ""]
         for heading, content in sections:
             if heading:
@@ -246,7 +246,7 @@ def _df_to_pdf_bytes(title: str, sections: list) -> bytes:
                             color=colors.HexColor("#BDC3C7"), spaceBefore=16))
     story.append(Paragraph(
         "⚕ CardioAI is a clinical decision support tool only. All outputs must be reviewed "
-        "by a licensed clinician before any clinical action is taken. — JoiHealth Polyclinics",
+        "by a licensed clinician before any clinical action is taken. — CardioAI Nova",
         footer_style
     ))
     doc.build(story)
@@ -1956,7 +1956,7 @@ models = load_models()
 xgb_explainer = load_explainer(models.get("cardio_xgb"))
 
 with st.sidebar:
-    # ── CardioAI Nova Logo ────────────────────────────────────────
+    # ── Cardiovascular Logo ────────────────────────────────────────
     import os
     logo_paths = [
         "Heart.png",
@@ -3806,13 +3806,783 @@ elif "Clinical NLP" in page:
 # ══════════════════════════════════════════════════════════
 
 elif "Medical Imaging" in page:
-    st.title("🔬 Medical Imaging — CNN Analysis")
-    st.caption("Upload a chest X-ray to detect 18 pathologies, segment anatomy, compute cardiothoracic ratio, and generate Grad-CAM heatmaps.")
+    st.title("🔬 Medical Imaging — Multi-Modal AI Analysis")
+    st.caption(
+        "AI-powered analysis across four imaging modalities: "
+        "Chest X-Ray (DenseNet-121), Echocardiogram (EF% & LV function), "
+        "ECG Signal (12-lead interpretation), and Retinal Fundus (cardiovascular risk)."
+    )
 
-    st.info(
-        "**Powered by DenseNet-121** pretrained on 100,000+ chest X-rays "
-        "(NIH ChestX-ray14, CheXpert, MIMIC-CXR). "
-        "Detects 18 pathologies with pixel-level Grad-CAM explainability."
+    img_tab1, img_tab2, img_tab3, img_tab4 = st.tabs([
+        "🫁 Chest X-Ray (DenseNet-121)",
+        "❤️ Echocardiogram (EchoNet)",
+        "📈 ECG Signal Analysis",
+        "👁 Retinal Fundus (CV Risk)",
+    ])
+
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 1 — CHEST X-RAY (existing DenseNet-121)
+    # ══════════════════════════════════════════════════════════════════════
+    with img_tab1:
+        st.subheader("Chest X-Ray — DenseNet-121 CNN")
+        st.info(
+            "**Powered by DenseNet-121** pretrained on 100,000+ chest X-rays "
+            "(NIH ChestX-ray14, CheXpert, MIMIC-CXR). "
+            "Detects 18 pathologies with pixel-level Grad-CAM explainability."
+        )
+        st.warning(
+            "⚠ **Chest X-rays only.** Uploading echocardiograms, ultrasounds, CT, MRI, "
+            "or other modalities will produce meaningless scores. Use the correct tab for each modality."
+        )
+
+        cnn_ready = False
+        try:
+            import torch, torchxrayvision as xrv, skimage
+            cnn_ready = True
+        except ImportError:
+            st.warning("CNN imaging requires: `torchxrayvision scikit-image` in requirements.txt")
+
+        uploaded_xray = st.file_uploader(
+            "Upload chest X-ray (JPG, PNG)",
+            type=["jpg","jpeg","png"],
+            help="PA or AP view chest X-ray only. DICOM → export as PNG first.",
+            key="xray_upload"
+        )
+
+        if uploaded_xray and cnn_ready:
+            from PIL import Image as PILImage
+            import torch, torch.nn.functional as F
+            import torchvision.transforms as transforms
+            import torchxrayvision as xrv
+            import skimage.transform
+            import numpy as np
+            import matplotlib; matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            import matplotlib.cm as cm_module
+
+            img_pil = PILImage.open(uploaded_xray)
+            st.image(img_pil, caption=f"Uploaded: {uploaded_xray.name}", use_container_width=True)
+
+            THRESHOLDS = {
+                "Cardiomegaly":0.35,"Effusion":0.40,"Pneumonia":0.30,
+                "Atelectasis":0.40,"Consolidation":0.40,"Pneumothorax":0.28,
+                "Edema":0.35,"Emphysema":0.40,"Fibrosis":0.40,
+                "Nodule":0.45,"Mass":0.38,"Infiltration":0.40,
+                "Pleural_Thickening":0.40,"Hernia":0.30,
+            }
+            URGENT  = {"Pneumothorax","Mass","Edema","Effusion"}
+            CARDIAC = {"Cardiomegaly","Effusion","Edema","Consolidation"}
+
+            with st.spinner("Preprocessing image..."):
+                img_np   = np.array(img_pil.convert("L")).astype(np.float32)
+                img_norm = xrv.datasets.normalize(img_np, img_np.max() if img_np.max()>0 else 255)
+                img_norm = img_norm[None, ...]
+                transform = transforms.Compose([
+                    xrv.datasets.XRayCenterCrop(),
+                    xrv.datasets.XRayResizer(224)
+                ])
+                img_tensor = torch.from_numpy(transform(img_norm)).float()
+
+            with st.spinner("Running DenseNet-121 — classifying 18 pathologies..."):
+                try:
+                    model = xrv.models.DenseNet(weights="densenet121-res224-all")
+                    model.eval()
+                    with torch.no_grad():
+                        outputs = model(img_tensor[None,...])
+                    pathologies = model.targets
+                    scores = dict(zip(pathologies, outputs[0].detach().numpy().tolist()))
+                    scores = dict(sorted(scores.items(), key=lambda x: x[1], reverse=True))
+                    st.success(f"Classification complete — {len(scores)} pathologies scored")
+                except Exception as e:
+                    st.error(f"Classification error: {e}")
+                    scores = {}; model = None
+
+            masks, seg_targets = None, None
+            with st.spinner("Running anatomical segmentation..."):
+                try:
+                    seg_model = xrv.baseline_models.chestx_det.PSPNet()
+                    seg_model.eval()
+                    with torch.no_grad():
+                        seg_out = seg_model(img_tensor[None,...])
+                    masks = seg_out[0].detach().numpy()
+                    seg_targets = seg_model.targets
+                    st.success(f"Segmented {len(seg_targets)} anatomical structures")
+                except Exception as e:
+                    st.info(f"Segmentation unavailable: {e}")
+
+            ctr, cardiomegaly = None, None
+            if masks is not None and seg_targets is not None:
+                try:
+                    hi = seg_targets.index("Heart")
+                    li = seg_targets.index("Left Lung")
+                    ri = seg_targets.index("Right Lung")
+                    hm = masks[hi] > 0.5
+                    chest_m = (masks[li]>0.5)|(masks[ri]>0.5)|hm
+                    hc = np.where(hm.any(axis=0))[0]
+                    cc = np.where(chest_m.any(axis=0))[0]
+                    if len(hc)>=2 and len(cc)>=2:
+                        ctr = round(float((hc[-1]-hc[0])/(cc[-1]-cc[0])),4)
+                        cardiomegaly = ctr >= 0.50
+                except Exception:
+                    pass
+
+            flags = []
+            for p,s in scores.items():
+                t = THRESHOLDS.get(p, 0.45)
+                if s >= t:
+                    flags.append({
+                        "pathology":p,"score":round(s,3),
+                        "severity":"Mild" if s<0.50 else ("Moderate" if s<0.70 else "Significant"),
+                        "urgent":p in URGENT,"cardiac":p in CARDIAC
+                    })
+            flags.sort(key=lambda x: (not x["urgent"],-x["score"]))
+
+            gcam = None
+            top_path = flags[0]["pathology"] if flags else (list(scores.keys())[0] if scores else None)
+            if model and top_path:
+                with st.spinner(f"Generating Grad-CAM for {top_path}..."):
+                    try:
+                        grads, acts = [], []
+                        def bwd(m,gi,go): grads.append(go[0])
+                        def fwd(m,i,o):   acts.append(o)
+                        layer = None
+                        for attr_path in [
+                            lambda m: m.features.denseblock4,
+                            lambda m: m.model.features.denseblock4,
+                            lambda m: list(m.features.children())[-1],
+                            lambda m: m.features,
+                        ]:
+                            try:
+                                layer = attr_path(model); break
+                            except (AttributeError,IndexError):
+                                continue
+                        if layer is None:
+                            raise AttributeError("Could not locate DenseNet feature layer.")
+                        h1 = layer.register_forward_hook(fwd)
+                        h2 = layer.register_full_backward_hook(bwd)
+                        inp = img_tensor[None,...].requires_grad_(True)
+                        out = model(inp)
+                        model.zero_grad()
+                        out[0, model.targets.index(top_path)].backward()
+                        if grads and acts:
+                            g = grads[0][0]; a = acts[0][0]
+                            c = F.relu((g.mean(dim=[1,2])[:,None,None]*a).sum(0)).detach().numpy()
+                            if c.max()>0: c = (c-c.min())/(c.max()-c.min())
+                            gcam = skimage.transform.resize(c,(224,224))
+                            st.success(f"Grad-CAM generated for: {top_path}")
+                        h1.remove(); h2.remove()
+                    except Exception as e:
+                        st.info(f"Grad-CAM unavailable: {e}")
+
+            # ── Results display ─────────────────────────────────
+            st.divider()
+            st.subheader("Results")
+            if ctr is not None:
+                c1,c2,c3 = st.columns(3)
+                with c1: st.metric("Cardiothoracic Ratio",f"{ctr:.3f}",delta="CARDIOMEGALY" if cardiomegaly else "Normal")
+                with c2: st.metric("Findings Flagged",len(flags))
+                with c3: st.metric("Urgent Findings",sum(1 for f in flags if f["urgent"]))
+
+            if flags:
+                st.subheader("Flagged Findings")
+                for f in flags:
+                    msg = f"{'🚨' if f['urgent'] else '⚠'} **{f['pathology']}** — Score: {f['score']:.3f} | {f['severity']}{' | CARDIAC' if f['cardiac'] else ''}"
+                    if f["urgent"]:  st.error(msg)
+                    elif f["cardiac"]: st.warning(msg)
+                    else: st.info(msg)
+
+            if scores:
+                st.subheader("All Pathology Scores")
+                score_df = pd.DataFrame([{"Pathology":p,"Score":round(s,4),"Flagged":"Yes" if p in {f["pathology"] for f in flags} else "No","Threshold":THRESHOLDS.get(p,0.45)} for p,s in scores.items()])
+                st.dataframe(score_df, use_container_width=True, hide_index=True)
+
+            if gcam is not None:
+                st.subheader(f"Grad-CAM Heatmap — {top_path}")
+                fig, ax = plt.subplots(1,2,figsize=(10,4))
+                img_arr = np.array(img_pil.convert("L"))
+                ax[0].imshow(img_arr, cmap="gray"); ax[0].set_title("Original"); ax[0].axis("off")
+                img_r = skimage.transform.resize(img_arr,(224,224))
+                ax[1].imshow(img_r, cmap="gray")
+                ax[1].imshow(gcam, cmap="jet", alpha=0.45)
+                ax[1].set_title(f"Grad-CAM: {top_path}"); ax[1].axis("off")
+                st.pyplot(fig); plt.close()
+
+            # ── Report & Export ─────────────────────────────────
+            report_lines = [
+                "CHEST X-RAY AI ANALYSIS REPORT",
+                f"Generated: {pd.Timestamp.now().strftime('%d %B %Y %H:%M')}",
+                "System: CardioAI DenseNet-121 | JoiHealth Polyclinics", "",
+                f"Cardiothoracic Ratio: {ctr if ctr else 'Not computed'}",
+                f"Cardiomegaly (CTR≥0.50): {'YES' if cardiomegaly else 'No' if ctr else 'N/A'}",
+                f"Total pathologies flagged: {len(flags)}", "",
+                "FLAGGED FINDINGS:",
+            ]
+            for f in flags:
+                report_lines.append(f"  {'[URGENT] ' if f['urgent'] else ''}{f['pathology']}: {f['score']:.3f} ({f['severity']})")
+            report_lines.append("\nIMPORTANT: AI screening tool only. Radiologist review required.")
+
+            st.divider()
+            _img_df = pd.DataFrame([{"Pathology":p,"Score":round(s,4),"Flagged":"Yes" if p in {f["pathology"] for f in flags} else "No","Severity":next((f["severity"] for f in flags if f["pathology"]==p),"—"),"Urgent":"Yes" if p in {f["pathology"] for f in flags if f["urgent"]} else "No","Threshold":THRESHOLDS.get(p,0.45)} for p,s in scores.items()])
+            _img_summary_df = pd.DataFrame([{"CTR":ctr if ctr else "N/A","Cardiomegaly":"YES" if cardiomegaly else "No","Findings Flagged":len(flags),"Urgent Findings":sum(1 for f in flags if f["urgent"]),"Top Finding":flags[0]["pathology"] if flags else "None"}])
+            export_buttons(
+                "Medical Imaging",
+                csv_df=_img_df,
+                excel_sheets={"Summary":_img_summary_df,"Pathology Scores":_img_df},
+                pdf_title="CardioAI — Chest X-Ray Analysis Report",
+                pdf_sections=[("Analysis Summary",_img_summary_df),("Pathology Scores",_img_df),("Clinical Report","\n".join(report_lines))],
+                docx_title="CardioAI — Chest X-Ray Analysis Report",
+                docx_sections=[("Analysis Summary",_img_summary_df),("Pathology Scores",_img_df),("Clinical Report","\n".join(report_lines))],
+                file_stem="xray_analysis",
+            )
+            st.warning("AI screening only. Does not replace radiologist review.")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 2 — ECHOCARDIOGRAM
+    # ══════════════════════════════════════════════════════════════════════
+    with img_tab2:
+        st.subheader("Echocardiogram — LV Function & Ejection Fraction")
+        st.info(
+            "Upload an echocardiogram image or video frame. "
+            "CardioAI uses **EchoNet-inspired analysis** with Gemini Vision AI to estimate "
+            "ejection fraction (EF%), identify wall motion abnormalities, LV size, and "
+            "generate a structured echo report."
+        )
+        st.warning(
+            "⚠ Full EchoNet-Dynamic (video-based EF%) requires a GPU environment. "
+            "On Streamlit Cloud, Gemini Vision AI is used for image-based echo interpretation."
+        )
+
+        echo_upload = st.file_uploader(
+            "Upload echocardiogram image (JPG, PNG)",
+            type=["jpg","jpeg","png"],
+            help="Parasternal long axis, apical 4-chamber, or any standard echo view.",
+            key="echo_upload"
+        )
+
+        echo_col1, echo_col2 = st.columns(2)
+        with echo_col1:
+            echo_view = st.selectbox("Echo View", [
+                "Apical 4-Chamber (A4C)",
+                "Parasternal Long Axis (PLAX)",
+                "Parasternal Short Axis (PSAX)",
+                "Apical 2-Chamber (A2C)",
+                "Subcostal",
+                "Suprasternal",
+                "Other / Unknown",
+            ])
+            echo_modality = st.selectbox("Doppler Mode", [
+                "2D Echo only",
+                "M-Mode",
+                "Colour Doppler",
+                "Pulsed Wave (PW) Doppler",
+                "Continuous Wave (CW) Doppler",
+                "Tissue Doppler (TDI)",
+            ])
+        with echo_col2:
+            echo_ivsd    = st.number_input("IVSd — Interventricular Septum Diastole (mm)", 0.0, 30.0, 9.0, 0.1, help="Normal: 6–11mm")
+            echo_lvedd   = st.number_input("LVEDd — LV End-Diastolic Diameter (mm)", 0.0, 90.0, 50.0, 0.1, help="Normal: Men <59mm | Women <53mm")
+            echo_lvesd   = st.number_input("LVESd — LV End-Systolic Diameter (mm)", 0.0, 80.0, 33.0, 0.1, help="Normal: Men <40mm | Women <36mm")
+            echo_pwed    = st.number_input("PWed — Posterior Wall End-Diastole (mm)", 0.0, 30.0, 9.0, 0.1, help="Normal: 6–11mm")
+            echo_ef_manual = st.number_input("EF% (if measured on machine)", 0.0, 100.0, 0.0, 0.5, help="0 = not measured — AI will estimate")
+
+        # Teichholz EF estimation from dimensions
+        ef_teich = None
+        if echo_lvedd > 0 and echo_lvesd > 0:
+            def teichholz(d): return (7.0 / (2.4 + d/10)) * (d/10)**3 * 1000
+            edv = teichholz(echo_lvedd); esv = teichholz(echo_lvesd)
+            ef_teich = round((edv - esv) / edv * 100, 1) if edv > 0 else None
+            lv_mass = round(1.04 * ((echo_lvedd/10 + echo_ivsd/10 + echo_pwed/10)**3 - (echo_lvedd/10)**3) * 0.8 + 0.6, 1)
+
+            ec1, ec2, ec3, ec4 = st.columns(4)
+            ef_display = echo_ef_manual if echo_ef_manual > 0 else ef_teich
+            ef_class = ("Severely Reduced (<30%)" if ef_display < 30
+                        else "Moderately Reduced (30–39%)" if ef_display < 40
+                        else "Mildly Reduced (40–49%)" if ef_display < 50
+                        else "Low Normal (50–54%)" if ef_display < 55
+                        else "Normal (≥55%)")
+            with ec1: st.metric("EF%", f"{ef_display:.1f}%", delta=ef_class)
+            with ec2: st.metric("EDV (Teichholz)", f"{edv:.0f} mL")
+            with ec3: st.metric("ESV (Teichholz)", f"{esv:.0f} mL")
+            with ec4: st.metric("LV Mass", f"{lv_mass:.0f} g")
+            if ef_display < 40:    st.error(f"⚠ EF {ef_display:.1f}% — Reduced — Heart Failure with Reduced EF (HFrEF)")
+            elif ef_display < 50:  st.warning(f"⚠ EF {ef_display:.1f}% — Mildly Reduced — monitor closely")
+            elif ef_display < 55:  st.warning(f"⚠ EF {ef_display:.1f}% — Low Normal")
+            else:                  st.success(f"✓ EF {ef_display:.1f}% — Normal systolic function")
+
+        # Gemini Vision echo interpretation
+        if echo_upload:
+            from PIL import Image as PILImage
+            echo_img = PILImage.open(echo_upload)
+            st.image(echo_img, caption=f"Uploaded: {echo_upload.name}", use_container_width=True)
+
+            if st.button("🔍 Analyse Echo with Gemini Vision AI", type="primary", key="echo_gemini_btn"):
+                with st.spinner("Gemini Vision AI analysing echocardiogram..."):
+                    try:
+                        import google.generativeai as genai
+                        import base64, io
+                        api_key = st.secrets.get("GOOGLE_API_KEY","")
+                        if not api_key:
+                            st.warning("GOOGLE_API_KEY not set in Streamlit secrets.")
+                        else:
+                            genai.configure(api_key=api_key)
+                            gemini = genai.GenerativeModel("gemini-2.0-flash")
+                            buf = io.BytesIO()
+                            echo_img.save(buf, format="JPEG")
+                            img_b64 = base64.b64encode(buf.getvalue()).decode()
+                            echo_prompt = f"""You are a cardiologist reviewing an echocardiogram image.
+Echo view: {echo_view} | Doppler mode: {echo_modality}
+Measured dimensions — IVSd: {echo_ivsd}mm | LVEDd: {echo_lvedd}mm | LVESd: {echo_lvesd}mm | PWed: {echo_pwed}mm
+Estimated EF (Teichholz): {ef_teich if ef_teich else 'not calculated'}%
+Machine EF: {echo_ef_manual if echo_ef_manual > 0 else 'not entered'}%
+
+Please provide a structured echo report including:
+1. Image quality and view adequacy
+2. Left ventricular size and systolic function (estimate EF if visible)
+3. Left ventricular diastolic function assessment
+4. Right ventricular size and function
+5. Valvular assessment (mitral, aortic, tricuspid, pulmonary)
+6. Pericardium assessment
+7. Wall motion abnormalities (if visible)
+8. Key measurements and any abnormalities
+9. Clinical impression and recommendations
+10. Limitations of this assessment
+
+Be concise and clinically precise. Flag any urgent findings clearly."""
+                            response = gemini.generate_content([
+                                {"mime_type":"image/jpeg","data":img_b64},
+                                echo_prompt
+                            ])
+                            echo_report = response.text
+                            st.session_state["echo_report"] = echo_report
+                    except Exception as e:
+                        st.error(f"Echo analysis error: {e}")
+
+            # Display report
+            echo_report = st.session_state.get("echo_report","")
+            if echo_report:
+                st.divider()
+                st.subheader("Gemini Vision Echo Report")
+                st.markdown(echo_report)
+                # Export
+                _echo_dims_df = pd.DataFrame([{
+                    "View": echo_view, "Doppler": echo_modality,
+                    "IVSd (mm)": echo_ivsd, "LVEDd (mm)": echo_lvedd,
+                    "LVESd (mm)": echo_lvesd, "PWed (mm)": echo_pwed,
+                    "EF% (Teichholz)": ef_teich if ef_teich else "—",
+                    "EF% (Machine)": echo_ef_manual if echo_ef_manual > 0 else "—",
+                    "EDV (mL)": round(edv,1) if ef_teich else "—",
+                    "ESV (mL)": round(esv,1) if ef_teich else "—",
+                }])
+                st.divider()
+                export_buttons(
+                    "Echo Report",
+                    csv_df=_echo_dims_df,
+                    excel_sheets={"Echo Measurements": _echo_dims_df},
+                    pdf_title="CardioAI — Echocardiogram Analysis Report",
+                    pdf_sections=[("Echo Measurements",_echo_dims_df),("AI Echo Report",echo_report)],
+                    docx_title="CardioAI — Echocardiogram Analysis Report",
+                    docx_sections=[("Echo Measurements",_echo_dims_df),("AI Echo Report",echo_report)],
+                    file_stem="echo_report",
+                )
+        else:
+            st.info("Upload an echo image above to enable Gemini Vision AI interpretation.")
+
+        st.divider()
+        st.caption(
+            "**EF Classification:** Normal ≥55% · Low Normal 50–54% · Mildly Reduced 40–49% · "
+            "Moderately Reduced 30–39% · Severely Reduced <30% | "
+            "Teichholz formula used for M-mode EF estimation. "
+            "Always correlate with clinical findings and formal echo report."
+        )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 3 — ECG SIGNAL ANALYSIS
+    # ══════════════════════════════════════════════════════════════════════
+    with img_tab3:
+        st.subheader("ECG Signal Analysis — 12-Lead Interpretation")
+        st.info(
+            "Two modes: (1) **Upload an ECG image** — Gemini Vision AI reads and interprets "
+            "the tracing. (2) **Upload raw ECG signal (CSV)** — automated interval measurement "
+            "and rhythm classification."
+        )
+
+        ecg_mode = st.radio("Analysis mode", [
+            "📷 ECG Image — Gemini Vision AI interpretation",
+            "📊 Raw ECG Signal (CSV) — Automated analysis",
+        ], key="ecg_mode")
+
+        if "📷" in ecg_mode:
+            # ── ECG Image → Gemini Vision ─────────────────────────────
+            ecg_img_upload = st.file_uploader(
+                "Upload 12-lead ECG image (JPG, PNG)",
+                type=["jpg","jpeg","png"],
+                help="Standard 12-lead ECG printout or digital screenshot",
+                key="ecg_img_upload"
+            )
+
+            ecg_context_col1, ecg_context_col2 = st.columns(2)
+            with ecg_context_col1:
+                ecg_patient_age  = st.number_input("Patient Age", 18, 100, 55, key="ecg_age")
+                ecg_patient_sex  = st.selectbox("Patient Sex", ["Male","Female"], key="ecg_sex")
+                ecg_symptoms     = st.multiselect("Presenting Symptoms", [
+                    "Chest pain","Palpitations","Syncope","Dyspnoea",
+                    "Dizziness","Fatigue","None"
+                ], default=["None"], key="ecg_symptoms")
+            with ecg_context_col2:
+                ecg_hx_mi        = st.selectbox("History of MI", ["No","Yes"], key="ecg_hx_mi")
+                ecg_hx_htn       = st.selectbox("History of Hypertension", ["No","Yes"], key="ecg_hx_htn")
+                ecg_medications  = st.text_input("Current cardiac medications (if any)", key="ecg_meds")
+                ecg_speed        = st.selectbox("Paper speed", ["25 mm/s (standard)","50 mm/s"], key="ecg_speed")
+
+            if ecg_img_upload:
+                from PIL import Image as PILImage
+                ecg_img = PILImage.open(ecg_img_upload)
+                st.image(ecg_img, caption=f"Uploaded: {ecg_img_upload.name}", use_container_width=True)
+
+                if st.button("🔍 Interpret ECG with Gemini Vision AI", type="primary", key="ecg_gemini_btn"):
+                    with st.spinner("Gemini Vision AI reading 12-lead ECG..."):
+                        try:
+                            import google.generativeai as genai
+                            import base64, io
+                            api_key = st.secrets.get("GOOGLE_API_KEY","")
+                            if not api_key:
+                                st.warning("GOOGLE_API_KEY not set in Streamlit secrets.")
+                            else:
+                                genai.configure(api_key=api_key)
+                                gemini = genai.GenerativeModel("gemini-2.0-flash")
+                                buf = io.BytesIO()
+                                ecg_img.save(buf, format="JPEG")
+                                img_b64 = base64.b64encode(buf.getvalue()).decode()
+                                ecg_prompt = f"""You are an expert cardiologist interpreting a 12-lead ECG.
+
+Patient context:
+- Age: {ecg_patient_age} | Sex: {ecg_patient_sex}
+- Symptoms: {', '.join(ecg_symptoms)}
+- History: MI: {ecg_hx_mi} | Hypertension: {ecg_hx_htn}
+- Medications: {ecg_medications or 'None stated'}
+- Paper speed: {ecg_speed}
+
+Please provide a complete structured ECG interpretation:
+
+1. TECHNICAL QUALITY
+   - Paper speed, calibration, lead placement adequacy
+
+2. RHYTHM ANALYSIS
+   - Rate (bpm), regularity, rhythm diagnosis
+
+3. INTERVALS & AXES
+   - PR interval (ms), QRS duration (ms), QT/QTc (ms)
+   - P-wave axis, QRS axis, T-wave axis
+
+4. WAVEFORM ANALYSIS
+   - P waves: morphology, axis, duration
+   - QRS complex: morphology, voltage, bundle branch block?
+   - ST segments: elevation/depression (lead-by-lead if abnormal)
+   - T waves: morphology, inversions
+   - Q waves: pathological Q waves?
+   - U waves: present?
+
+5. SPECIFIC FINDINGS
+   - Left/Right ventricular hypertrophy criteria
+   - Chamber enlargement
+   - Ischaemia/injury pattern
+   - Infarction pattern (age, territory)
+   - Conduction abnormalities
+
+6. CLINICAL IMPRESSION
+   - Primary diagnosis
+   - Differential diagnoses
+   - Urgency level: ROUTINE / URGENT / EMERGENCY
+
+7. RECOMMENDATIONS
+   - Immediate actions if any
+   - Further investigations
+
+Flag any STEMI, LBBB, complete heart block, VT, or other emergency findings in RED CAPITALS."""
+
+                                response = gemini.generate_content([
+                                    {"mime_type":"image/jpeg","data":img_b64},
+                                    ecg_prompt
+                                ])
+                                st.session_state["ecg_report"] = response.text
+                        except Exception as e:
+                            st.error(f"ECG interpretation error: {e}")
+
+                ecg_report = st.session_state.get("ecg_report","")
+                if ecg_report:
+                    st.divider()
+                    st.subheader("Gemini Vision — ECG Interpretation Report")
+                    st.markdown(ecg_report)
+                    _ecg_ctx_df = pd.DataFrame([{
+                        "Age": ecg_patient_age, "Sex": ecg_patient_sex,
+                        "Symptoms": ", ".join(ecg_symptoms),
+                        "Hx MI": ecg_hx_mi, "Hx HTN": ecg_hx_htn,
+                        "Medications": ecg_medications or "None",
+                        "Paper Speed": ecg_speed,
+                    }])
+                    st.divider()
+                    export_buttons(
+                        "ECG Report",
+                        csv_df=_ecg_ctx_df,
+                        excel_sheets={"Patient Context": _ecg_ctx_df},
+                        pdf_title="CardioAI — 12-Lead ECG Interpretation Report",
+                        pdf_sections=[("Patient Context",_ecg_ctx_df),("ECG Interpretation",ecg_report)],
+                        docx_title="CardioAI — 12-Lead ECG Interpretation Report",
+                        docx_sections=[("Patient Context",_ecg_ctx_df),("ECG Interpretation",ecg_report)],
+                        file_stem="ecg_report",
+                    )
+
+        else:
+            # ── Raw ECG Signal CSV ────────────────────────────────────
+            st.markdown("**Upload raw ECG signal as CSV**")
+            st.caption(
+                "Expected format: columns = lead names (I, II, III, aVR, aVL, aVF, V1–V6) "
+                "or a single-column signal. Rows = samples. Sampling rate in Hz below."
+            )
+            ecg_csv_upload = st.file_uploader(
+                "Upload ECG signal (CSV)",
+                type=["csv"],
+                key="ecg_csv_upload"
+            )
+            ecg_fs = st.number_input("Sampling rate (Hz)", 100, 1000, 500,
+                                      help="Common: 250Hz, 500Hz, 1000Hz")
+
+            if ecg_csv_upload:
+                try:
+                    import matplotlib; matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+                    ecg_df = pd.read_csv(ecg_csv_upload)
+                    st.success(f"Loaded: {ecg_df.shape[0]} samples × {ecg_df.shape[1]} leads")
+                    st.dataframe(ecg_df.head(5), use_container_width=True)
+
+                    # Plot signal
+                    fig, axes = plt.subplots(min(ecg_df.shape[1],12), 1,
+                                             figsize=(14, min(ecg_df.shape[1],12)*1.5),
+                                             sharex=True)
+                    if ecg_df.shape[1] == 1:
+                        axes = [axes]
+                    t = [i/ecg_fs for i in range(len(ecg_df))]
+                    for idx, col in enumerate(ecg_df.columns[:12]):
+                        axes[idx].plot(t, ecg_df[col].values, linewidth=0.7, color="#c0392b")
+                        axes[idx].set_ylabel(col, fontsize=8)
+                        axes[idx].grid(True, alpha=0.3)
+                        axes[idx].set_facecolor("#fff9f9")
+                    axes[-1].set_xlabel("Time (seconds)")
+                    plt.suptitle("ECG Signal — All Leads", fontweight="bold")
+                    plt.tight_layout()
+                    st.pyplot(fig); plt.close()
+
+                    # Basic interval estimation from lead II
+                    lead_ii_col = next((c for c in ecg_df.columns if "II" in c.upper() or c.upper() in ["LEAD2","LEAD II","2"]), ecg_df.columns[0])
+                    signal = ecg_df[lead_ii_col].values.astype(float)
+
+                    # R-peak detection (simple threshold)
+                    try:
+                        threshold = signal.mean() + 0.6 * signal.std()
+                        from scipy.signal import find_peaks
+                        peaks, _ = find_peaks(signal, height=threshold, distance=int(ecg_fs*0.4))
+                        if len(peaks) > 1:
+                            rr_intervals = [(peaks[i+1]-peaks[i])/ecg_fs for i in range(len(peaks)-1)]
+                            mean_rr = sum(rr_intervals)/len(rr_intervals)
+                            hr_est  = round(60/mean_rr, 0)
+                            rr_std  = round((sum((r-mean_rr)**2 for r in rr_intervals)/len(rr_intervals))**0.5 * 1000, 1)
+                            rhythm  = "Regular" if rr_std < 50 else "Irregular — possible AF or ectopy"
+
+                            m1,m2,m3,m4 = st.columns(4)
+                            with m1: st.metric("Estimated HR", f"{hr_est:.0f} bpm")
+                            with m2: st.metric("Mean RR", f"{mean_rr*1000:.0f} ms")
+                            with m3: st.metric("RR Variability (SDNN)", f"{rr_std} ms")
+                            with m4: st.metric("Rhythm", rhythm)
+
+                            if rhythm != "Regular":
+                                st.warning(f"⚠ Irregular rhythm detected — consider Holter monitoring")
+                            if hr_est > 100:
+                                st.warning(f"⚠ Tachycardia: {hr_est:.0f} bpm")
+                            elif hr_est < 60:
+                                st.warning(f"⚠ Bradycardia: {hr_est:.0f} bpm")
+                        else:
+                            st.info("Insufficient R-peaks detected. Check signal quality and sampling rate.")
+                    except Exception as e:
+                        st.info(f"Automated interval analysis unavailable: {e}")
+
+                    st.divider()
+                    export_buttons(
+                        "ECG Signal",
+                        csv_df=ecg_df,
+                        excel_sheets={"ECG Signal": ecg_df},
+                        pdf_title="CardioAI — ECG Signal Analysis",
+                        pdf_sections=[("ECG Signal (first 100 samples)", ecg_df.head(100))],
+                        docx_title="CardioAI — ECG Signal Analysis",
+                        docx_sections=[("ECG Signal (first 100 samples)", ecg_df.head(100))],
+                        file_stem="ecg_signal",
+                    )
+                except Exception as e:
+                    st.error(f"ECG CSV error: {e}")
+
+        st.divider()
+        st.caption(
+            "ECG AI interpretation by Gemini Vision 2.0 Flash. Always confirm with a cardiologist. "
+            "This tool does not replace clinical ECG reading."
+        )
+
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 4 — RETINAL FUNDUS
+    # ══════════════════════════════════════════════════════════════════════
+    with img_tab4:
+        st.subheader("Retinal Fundus — Cardiovascular Risk Assessment")
+        st.info(
+            "The retina is the only place in the body where vasculature can be directly visualised "
+            "non-invasively. **Google research (2018, Nature)** demonstrated that deep learning on "
+            "fundus images can predict age, sex, systolic BP, HbA1c, BMI, smoking status, and "
+            "5-year cardiovascular risk. CardioAI uses **Gemini Vision AI** to interpret fundus "
+            "images and identify markers of hypertensive, diabetic, and atherosclerotic retinopathy."
+        )
+
+        fundus_upload = st.file_uploader(
+            "Upload retinal fundus image (JPG, PNG)",
+            type=["jpg","jpeg","png"],
+            help="Standard colour fundus photograph. 45° or 30° field of view.",
+            key="fundus_upload"
+        )
+
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            fundus_eye     = st.selectbox("Eye", ["Right eye (OD)","Left eye (OS)","Both"], key="fundus_eye")
+            fundus_field   = st.selectbox("Field of view", ["45°","30°","Wide-field (>60°)","Unknown"], key="fundus_field")
+            fundus_dilated = st.selectbox("Pupil dilation", ["Dilated","Undilated"], key="fundus_dilated")
+        with f_col2:
+            fundus_sbp   = st.number_input("Systolic BP (mmHg)", 70, 260, 130, key="fundus_sbp")
+            fundus_hba1c = st.number_input("HbA1c (%)", 3.0, 20.0, 5.5, 0.1, key="fundus_hba1c")
+            fundus_dm    = st.selectbox("Diabetes status", ["No Diabetes","Type 1 DM","Type 2 DM","Pre-Diabetes"], key="fundus_dm")
+            fundus_dur   = st.number_input("Duration of diabetes (years)", 0, 50, 0, key="fundus_dur")
+
+        if fundus_upload:
+            from PIL import Image as PILImage
+            fundus_img = PILImage.open(fundus_upload)
+            st.image(fundus_img, caption=f"Uploaded: {fundus_upload.name}", use_container_width=True)
+
+            if st.button("🔍 Analyse Fundus with Gemini Vision AI", type="primary", key="fundus_gemini_btn"):
+                with st.spinner("Gemini Vision AI analysing retinal fundus..."):
+                    try:
+                        import google.generativeai as genai
+                        import base64, io
+                        api_key = st.secrets.get("GOOGLE_API_KEY","")
+                        if not api_key:
+                            st.warning("GOOGLE_API_KEY not set in Streamlit secrets.")
+                        else:
+                            genai.configure(api_key=api_key)
+                            gemini = genai.GenerativeModel("gemini-2.0-flash")
+                            buf = io.BytesIO()
+                            fundus_img.save(buf, format="JPEG")
+                            img_b64 = base64.b64encode(buf.getvalue()).decode()
+                            fundus_prompt = f"""You are a consultant ophthalmologist and cardiologist 
+interpreting a retinal fundus photograph for cardiovascular risk assessment.
+
+Clinical context:
+- Eye: {fundus_eye} | Field: {fundus_field} | Pupil: {fundus_dilated}
+- Systolic BP: {fundus_sbp} mmHg | HbA1c: {fundus_hba1c}% | Diabetes: {fundus_dm}
+- Diabetes duration: {fundus_dur} years
+
+Please provide a structured fundus report:
+
+1. IMAGE QUALITY
+   - Quality grade (1–5), adequate field, clarity
+
+2. OPTIC DISC
+   - Size, shape, colour, cup-to-disc ratio (CDR)
+   - Disc margins, neovascularisation at disc (NVD)
+
+3. MACULA
+   - Foveal reflex, hard exudates, haemorrhages, oedema
+
+4. RETINAL VASCULATURE
+   - Arteriolar calibre (CRAE estimate)
+   - AV ratio (normal ~0.67), AV nicking
+   - Arterial light reflex (copper/silver wiring)
+   - Tortuosity, neovascularisation elsewhere (NVE)
+
+5. BACKGROUND RETINA
+   - Microaneurysms, dot/blot haemorrhages
+   - Flame haemorrhages, cotton wool spots
+   - Hard exudates, soft exudates
+   - Laser scars (previous treatment)
+
+6. HYPERTENSIVE RETINOPATHY GRADING (Keith-Wagener-Barker)
+   - Grade 0: Normal
+   - Grade 1: Mild arteriolar narrowing
+   - Grade 2: AV nicking (Grade 1 + crossing changes)
+   - Grade 3: Grade 2 + haemorrhages/exudates/cotton wool
+   - Grade 4: Grade 3 + papilloedema (malignant hypertension)
+
+7. DIABETIC RETINOPATHY GRADING (ETDRS/ICDRS)
+   - No DR / Mild NPDR / Moderate NPDR / Severe NPDR / PDR
+   - Diabetic macular oedema: present/absent
+
+8. OTHER PATHOLOGY
+   - Glaucomatous changes, ARMD, vascular occlusions, other
+
+9. CARDIOVASCULAR RISK MARKERS
+   - AV ratio, arteriolar narrowing, vessel tortuosity
+   - Estimated contribution to CV risk (Low/Moderate/High)
+   - Predicted systolic BP range from retinal features
+   - Signs consistent with atherosclerosis
+
+10. CLINICAL IMPRESSION & RECOMMENDATIONS
+    - Primary diagnosis / most significant finding
+    - Urgency: ROUTINE / URGENT (refer within 1 week) / EMERGENCY (same day)
+    - Referrals recommended
+
+Flag any sight-threatening or life-threatening findings prominently."""
+
+                            response = gemini.generate_content([
+                                {"mime_type":"image/jpeg","data":img_b64},
+                                fundus_prompt
+                            ])
+                            st.session_state["fundus_report"] = response.text
+                    except Exception as e:
+                        st.error(f"Fundus analysis error: {e}")
+
+            fundus_report = st.session_state.get("fundus_report","")
+            if fundus_report:
+                st.divider()
+                st.subheader("Gemini Vision — Fundus Analysis Report")
+                st.markdown(fundus_report)
+                _fundus_ctx_df = pd.DataFrame([{
+                    "Eye": fundus_eye, "Field": fundus_field,
+                    "Dilation": fundus_dilated,
+                    "Systolic BP (mmHg)": fundus_sbp,
+                    "HbA1c (%)": fundus_hba1c,
+                    "Diabetes": fundus_dm,
+                    "DM Duration (yrs)": fundus_dur,
+                }])
+                st.divider()
+                export_buttons(
+                    "Fundus Report",
+                    csv_df=_fundus_ctx_df,
+                    excel_sheets={"Clinical Context": _fundus_ctx_df},
+                    pdf_title="CardioAI — Retinal Fundus Analysis Report",
+                    pdf_sections=[("Clinical Context",_fundus_ctx_df),("Fundus AI Report",fundus_report)],
+                    docx_title="CardioAI — Retinal Fundus Analysis Report",
+                    docx_sections=[("Clinical Context",_fundus_ctx_df),("Fundus AI Report",fundus_report)],
+                    file_stem="fundus_report",
+                )
+        else:
+            st.info("Upload a fundus image above to enable AI analysis.")
+
+        st.divider()
+        st.caption(
+            "**Reference:** Poplin et al. (2018) 'Prediction of cardiovascular risk factors from retinal fundus photographs via deep learning' — *Nature Biomedical Engineering.* "
+            "Hypertensive retinopathy grading: Keith-Wagener-Barker classification. "
+            "Diabetic retinopathy: ETDRS/ICDRS classification. "
+            "All findings must be confirmed by a qualified ophthalmologist."
+        )
+
+    st.divider()
+    st.caption(
+        "**Important:** All CardioAI imaging analysis is for clinical decision support only. "
+        "Chest X-ray results require radiologist review. Echo requires cardiologist confirmation. "
+        "ECG interpretation requires physician review. Fundus findings require ophthalmologist confirmation. "
+        "No imaging AI output should be used as a sole basis for clinical decisions."
     )
 
     # ── Check dependencies ─────────────────────────────────
@@ -3834,6 +4604,13 @@ elif "Medical Imaging" in page:
         help="PA (posterior-anterior) or AP view chest X-ray. "
              "DICOM: export as PNG/JPEG first."
     )
+
+    if uploaded_xray:
+        st.info(
+            "⚠ **Important:** This CNN is trained exclusively on **chest X-rays** (PA/AP views). "
+            "Uploading echocardiograms, ultrasounds, CT scans, MRI, or other modalities will "
+            "produce meaningless scores. Please ensure the uploaded image is a standard chest X-ray."
+        )
 
     if uploaded_xray and cnn_ready:
         from PIL import Image as PILImage
@@ -3940,19 +4717,49 @@ elif "Medical Imaging" in page:
                     grads, acts = [], []
                     def bwd(m, gi, go): grads.append(go[0])
                     def fwd(m, i, o):   acts.append(o)
-                    layer = model.model.features.denseblock4
+
+                    # xrv DenseNet exposes features directly on the model object
+                    # Try multiple access patterns for robustness across xrv versions
+                    layer = None
+                    for attr_path in [
+                        lambda m: m.features.denseblock4,        # xrv >= 0.0.29
+                        lambda m: m.model.features.denseblock4,  # older xrv
+                        lambda m: list(m.features.children())[-1],  # last block fallback
+                        lambda m: m.features,                    # whole feature extractor
+                    ]:
+                        try:
+                            layer = attr_path(model)
+                            break
+                        except (AttributeError, IndexError):
+                            continue
+
+                    if layer is None:
+                        raise AttributeError(
+                            "Could not locate DenseNet feature layer. "
+                            "Check torchxrayvision version."
+                        )
+
                     h1 = layer.register_forward_hook(fwd)
-                    h2 = layer.register_backward_hook(bwd)
+                    h2 = layer.register_full_backward_hook(bwd)
                     inp = img_tensor[None, ...].requires_grad_(True)
                     out = model(inp)
                     model.zero_grad()
-                    out[0, model.targets.index(top_path)].backward()
-                    g = grads[0][0]; a = acts[0][0]
-                    c = F.relu((g.mean(dim=[1,2])[:, None, None] * a).sum(0)).detach().numpy()
-                    if c.max() > 0: c = (c - c.min()) / (c.max() - c.min())
-                    gcam = skimage.transform.resize(c, (224, 224))
+                    target_idx = model.targets.index(top_path)
+                    out[0, target_idx].backward()
+
+                    if grads and acts:
+                        g = grads[0][0]; a = acts[0][0]
+                        c = F.relu(
+                            (g.mean(dim=[1,2])[:, None, None] * a).sum(0)
+                        ).detach().numpy()
+                        if c.max() > 0:
+                            c = (c - c.min()) / (c.max() - c.min())
+                        gcam = skimage.transform.resize(c, (224, 224))
+                        st.success(f"Grad-CAM generated for: {top_path}")
+                    else:
+                        st.info("Grad-CAM: no gradients captured — hooks may not have fired")
+
                     h1.remove(); h2.remove()
-                    st.success(f"Grad-CAM generated for: {top_path}")
                 except Exception as e:
                     st.info(f"Grad-CAM unavailable: {e}")
 
@@ -6247,7 +7054,7 @@ elif "About" in page:
 
         **Research Area:** Explainable AI in Preventive Healthcare
 
-        **Live App:** [cardioai-joihealth.streamlit.app](https://cardioai-nova.streamlit.app)
+        **Live App:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
 
         **GitHub:** [github.com/gbohigbaradc/cardioai-project](https://github.com/gbohigbaradc/cardioai-project)
         """)
@@ -6360,4 +7167,4 @@ elif "About" in page:
     decisions made based on this system's outputs.
     """)
 
-    st.caption("© 2025 Gboh-Igbara D. Charles — JoiHealth | cardioai-nova.streamlit.app")
+    st.caption("© 2025 Gboh-Igbara D. Charles — Nova | cardioai-nova.streamlit.app")
