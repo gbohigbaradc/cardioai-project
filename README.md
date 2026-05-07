@@ -1,8 +1,8 @@
-# CardioAI — JoiHealth Polyclinics
+# CardioAI — Nova
 
 > **AI-Powered Cardiovascular Risk, Clinical Intelligence & Hospital Operations System**
 
-[![Live App](https://img.shields.io/badge/Live%20App-cardioai--joihealth.streamlit.app-00B4D8?style=for-the-badge&logo=streamlit)](https://cardioai-joihealth.streamlit.app)
+[![Live App](https://img.shields.io/badge/Live%20App-cardioai--nova.streamlit.app-00B4D8?style=for-the-badge&logo=streamlit)](https://cardioai-nova.streamlit.app)
 [![medRxiv](https://img.shields.io/badge/medRxiv-MEDRXIV%2F2026%2F349630-red?style=for-the-badge)](https://www.medrxiv.org)
 [![DOI](https://img.shields.io/badge/DOI-10.53022%2Foarjms.2024.7.1.0055-blue?style=for-the-badge)](https://doi.org/10.53022/oarjms.2024.7.1.0055)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python)](https://python.org)
@@ -23,7 +23,7 @@ The system moves beyond a simple risk calculator into a **complete clinical inte
 ## Live Application
 
 ```
-https://cardioai-joihealth.streamlit.app
+https://cardioai-nova.streamlit.app
 ```
 
 ---
@@ -295,7 +295,7 @@ Operational Dashboard updated — bed status, EHR, staff load
 JoiHealth Polyclinics · Old GRA Port Harcourt & Ikoyi Lagos, Nigeria
 
 - GitHub: [github.com/gbohigbaradc/cardioai-project](https://github.com/gbohigbaradc/cardioai-project)
-- Live App: [cardioai-joihealth.streamlit.app](https://cardioai-joihealth.streamlit.app)
+- Live App: [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
 
 ---
 
