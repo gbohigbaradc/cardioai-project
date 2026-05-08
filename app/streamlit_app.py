@@ -7748,7 +7748,7 @@ elif "About" in page:
 
     with dev_col2:
         st.markdown("""
-        **Name:** CardioAI Nova Development Team
+        **Name:** Gboh-Igbara D. Charles (Team Lead, CardioAI Nova Development Team)
 
         **Role:** AI Developer & Researcher
 
@@ -7762,7 +7762,7 @@ elif "About" in page:
 
         **Live App:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
 
-        **GitHub:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
+        **GitHub:** [cardioai-nova.streamlit.app](https://gbohigbaradc.github.io)
         """)
 
     st.divider()
