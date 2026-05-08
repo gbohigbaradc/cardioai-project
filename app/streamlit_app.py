@@ -78,7 +78,7 @@ def _df_to_docx_bytes(title: str, sections: list) -> bytes:
 
     sub = doc.add_paragraph(
         f"Generated: {pd.Timestamp.now().strftime('%d %B %Y, %H:%M')}  |  "
-        f"CardioAI — Nova"
+        f"CardioAI Nova Polyclinics"
     )
     if sub.runs:
         sub.runs[0].font.size = Pt(9)
@@ -131,7 +131,7 @@ def _df_to_docx_bytes(title: str, sections: list) -> bytes:
     run = disc.add_run(
         "⚕ CardioAI is a clinical decision support tool only. All outputs must be "
         "reviewed by a licensed clinician before any clinical action is taken. "
-        "— CardioAI Nova"
+        "— CardioAI Nova | cardioai-nova.streamlit.app"
     )
     run.font.size = Pt(8)
     run.font.italic = True
@@ -159,7 +159,7 @@ def _df_to_pdf_bytes(title: str, sections: list) -> bytes:
         # Plain-text fallback — still downloadable
         lines = [title, "=" * 60,
                  f"Generated: {pd.Timestamp.now().strftime('%d %B %Y %H:%M')}",
-                 "CardioAI — Nova",
+                 "CardioAI Nova Polyclinics",
                  "(Install reportlab>=4.0.0 in requirements.txt for true PDF output)", ""]
         for heading, content in sections:
             if heading:
@@ -199,7 +199,7 @@ def _df_to_pdf_bytes(title: str, sections: list) -> bytes:
     story.append(Paragraph(title, title_style))
     story.append(Paragraph(
         f"Generated: {pd.Timestamp.now().strftime('%d %B %Y, %H:%M')} &nbsp;|&nbsp; "
-        f"CardioAI — JoiHealth Polyclinics",
+        f"CardioAI Nova Polyclinics",
         styles["Normal"]
     ))
     story.append(HRFlowable(width="100%", thickness=1.5,
@@ -246,7 +246,7 @@ def _df_to_pdf_bytes(title: str, sections: list) -> bytes:
                             color=colors.HexColor("#BDC3C7"), spaceBefore=16))
     story.append(Paragraph(
         "⚕ CardioAI is a clinical decision support tool only. All outputs must be reviewed "
-        "by a licensed clinician before any clinical action is taken. — CardioAI Nova",
+        "by a licensed clinician before any clinical action is taken. — CardioAI Nova | cardioai-nova.streamlit.app",
         footer_style
     ))
     doc.build(story)
@@ -344,7 +344,7 @@ def export_buttons(label: str, csv_df: pd.DataFrame = None,
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ICD-10 / ICD-11 / ICF / SNOMED CT  —  CLINICAL CODING REFERENCE
-# Covers all conditions relevant to JoiHealth cardiac rehabilitation practice.
+# Covers all conditions relevant to CardioAI Nova cardiac rehabilitation practice.
 # ══════════════════════════════════════════════════════════════════════════════
 
 ICD_DB = {
@@ -610,7 +610,7 @@ def render_icd_panel(diagnoses: list, context: str = ""):
                 st.caption(rec["description"])
                 st.markdown(f"*{rec['category']}*")
                 st.markdown(
-                    ("✅ NHIS Billable" if rec["nhis_billable"] else "❌ Not NHIS Billable") +
+                    ("✅ Insurance Billable" if rec["nhis_billable"] else "❌ Not Insurance Billable") +
                     ("  🏥 Rehab" if rec["rehab_relevant"] else "")
                 )
             with c2:
@@ -649,29 +649,29 @@ def icd_export_df(diagnoses: list) -> pd.DataFrame:
                 "SNOMED CT":        rec["snomed"],
                 "Description":      rec["description"],
                 "Category":         rec["category"],
-                "NHIS Billable":    "Yes" if rec["nhis_billable"] else "No",
+                "Insurance Billable":    "Yes" if rec["nhis_billable"] else "No",
                 "Rehab Relevant":   "Yes" if rec["rehab_relevant"] else "No",
                 "ICF Codes":        ", ".join(rec["icf_codes"]),
                 "ICF Descriptions": ", ".join(rec["icf_labels"]),
                 "CPT Codes":        ", ".join(cpt_codes),
                 "CPT Procedures":   " | ".join(cpt_descs),
-                "Est. NHIS Tariff (₦)": cpt_tariffs,
+                "Est. Tariff (local currency)": cpt_tariffs,
             })
         else:
             rows.append({
                 "Diagnosis": dx, "ICD-10": "—", "ICD-11": "—", "SNOMED CT": "—",
                 "Description": "Not mapped in ICD_DB", "Category": "—",
-                "NHIS Billable": "—", "Rehab Relevant": "—",
+                "Insurance Billable": "—", "Rehab Relevant": "—",
                 "ICF Codes": "—", "ICF Descriptions": "—",
-                "CPT Codes": "—", "CPT Procedures": "—", "Est. NHIS Tariff (₦)": 0,
+                "CPT Codes": "—", "CPT Procedures": "—", "Est. Tariff (local currency)": 0,
             })
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CPT — CURRENT PROCEDURAL TERMINOLOGY  (AMA / NHIS Procedure Codes)
-# Covers all investigations and procedures relevant to JoiHealth cardiac rehab.
-# Nigerian NHIS tariff estimates in ₦ are approximate 2025 rates.
+# CPT — CURRENT PROCEDURAL TERMINOLOGY  (AMA / Insurance Procedure Codes)
+# Covers all investigations and procedures relevant to CardioAI Nova cardiac rehab.
+# Nigerian Insurance tariff estimates in ₦ are approximate 2025 rates.
 # ══════════════════════════════════════════════════════════════════════════════
 
 CPT_DB = {
@@ -1180,7 +1180,7 @@ def render_cpt_panel(investigations: list, context: str = ""):
                 "CPT Code": cpt,
                 "Description": rec.get("description", "—"),
                 "Category": rec.get("category", "—"),
-                "NHIS Tariff (₦)": f"₦{rec.get('nhis_tariff', 0):,}",
+                "Tariff (local currency)": f"₦{rec.get('nhis_tariff', 0):,}",
                 "Unit": rec.get("unit", "—"),
             })
     if not rows:
@@ -1191,8 +1191,8 @@ def render_cpt_panel(investigations: list, context: str = ""):
                 for c in INVESTIGATION_CPT_MAP.get(inv, []))
     with st.expander(f"🧾 CPT Procedure Codes — {context}", expanded=False):
         st.dataframe(df, use_container_width=True, hide_index=True)
-        st.markdown(f"**Estimated Total NHIS Tariff: ₦{total:,}**")
-        st.caption("NHIS tariff rates are approximate 2025 Nigeria values. Actual reimbursement depends on NHIS scheme tier and facility level.")
+        st.markdown(f"**Estimated Total Standard Tariff: ₦{total:,}**")
+        st.caption("Tariff rates are approximate reference values. Actual reimbursement depends on insurance scheme tier and facility level.")
 
 
 def render_cpt_from_icd(diagnoses: list, context: str = ""):
@@ -1216,7 +1216,7 @@ def render_cpt_from_icd(diagnoses: list, context: str = ""):
                 "CPT Code": cpt,
                 "Procedure": cpt_rec.get("description", "—"),
                 "Category": cpt_rec.get("category", "—"),
-                "NHIS Tariff (₦)": f"₦{cpt_rec.get('nhis_tariff', 0):,}",
+                "Tariff (local currency)": f"₦{cpt_rec.get('nhis_tariff', 0):,}",
             })
     if not rows:
         return
@@ -1224,8 +1224,8 @@ def render_cpt_from_icd(diagnoses: list, context: str = ""):
     total = sum(CPT_DB.get(c, {}).get("nhis_tariff", 0) for c in seen)
     with st.expander(f"🧾 CPT Procedure Codes — {context}", expanded=False):
         st.dataframe(df, use_container_width=True, hide_index=True)
-        st.markdown(f"**Estimated NHIS Procedure Total: ₦{total:,}**")
-        st.caption("Typical investigations for the identified diagnoses. NHIS 2025 approximate tariffs.")
+        st.markdown(f"**Estimated Estimated Procedure Total: ₦{total:,}**")
+        st.caption("Typical investigations for the identified diagnoses. Approximate standard tariffs.")
 
 
 def cpt_export_df(investigations: list = None, diagnoses: list = None) -> pd.DataFrame:
@@ -1242,7 +1242,7 @@ def cpt_export_df(investigations: list = None, diagnoses: list = None) -> pd.Dat
                 rows.append({"Investigation/Procedure": inv, "CPT Code": cpt,
                              "Description": rec.get("description", "—"),
                              "Category": rec.get("category", "—"),
-                             "NHIS Tariff (₦)": rec.get("nhis_tariff", 0),
+                             "Tariff (local currency)": rec.get("nhis_tariff", 0),
                              "Unit": rec.get("unit", "—")})
     if diagnoses:
         for dx in diagnoses:
@@ -1256,13 +1256,91 @@ def cpt_export_df(investigations: list = None, diagnoses: list = None) -> pd.Dat
                 rows.append({"Investigation/Procedure": dx, "CPT Code": cpt,
                              "Description": cpt_rec.get("description", "—"),
                              "Category": cpt_rec.get("category", "—"),
-                             "NHIS Tariff (₦)": cpt_rec.get("nhis_tariff", 0),
+                             "Tariff (local currency)": cpt_rec.get("nhis_tariff", 0),
                              "Unit": cpt_rec.get("unit", "—")})
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CENTRAL AI CALL — Gemini Vision + Anthropic Claude fallback
+# All Gemini calls in the app route through this function.
+# On 429 / quota exhaustion, automatically retries with Claude.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _call_gemini(prompt: str, image_b64: str = None,
+                 image_mime: str = "image/jpeg",
+                 model: str = "gemini-2.0-flash",
+                 max_tokens: int = 2048) -> str:
+    """
+    Call Gemini Vision (or text). On quota/rate-limit error (429),
+    automatically falls back to Anthropic Claude.
+    Returns the response text string.
+    Raises RuntimeError if both APIs fail.
+    """
+    import google.generativeai as genai
+
+    gemini_key    = st.secrets.get("GOOGLE_API_KEY", "")
+    anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+
+    # ── Try Gemini first ──────────────────────────────────────────────
+    if gemini_key:
+        try:
+            genai.configure(api_key=gemini_key)
+            gm = genai.GenerativeModel(model)
+            content = []
+            if image_b64:
+                content.append({"mime_type": image_mime, "data": image_b64})
+            content.append(prompt)
+            response = gm.generate_content(content)
+            return response.text
+        except Exception as e:
+            err_str = str(e)
+            is_quota = any(x in err_str for x in
+                           ["429", "quota", "RESOURCE_EXHAUSTED",
+                            "ResourceExhausted", "rate", "limit"])
+            if is_quota:
+                st.warning(
+                    "⚠ Gemini API quota reached — switching to Anthropic Claude automatically. "
+                    "To restore Gemini: check your quota at https://ai.dev/rate-limit"
+                )
+            else:
+                raise RuntimeError(f"Gemini error: {e}")
+    else:
+        st.info("GOOGLE_API_KEY not set — using Anthropic Claude.")
+
+    # ── Fallback: Anthropic Claude ────────────────────────────────────
+    if anthropic_key:
+        try:
+            import anthropic as _anthropic
+            client = _anthropic.Anthropic(api_key=anthropic_key)
+            messages_content = []
+            if image_b64:
+                messages_content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image_mime,
+                        "data": image_b64,
+                    }
+                })
+            messages_content.append({"type": "text", "text": prompt})
+            resp = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": messages_content}]
+            )
+            return resp.content[0].text
+        except Exception as e:
+            raise RuntimeError(f"Both Gemini and Claude failed. Claude error: {e}")
+    else:
+        raise RuntimeError(
+            "No AI API key available. Set GOOGLE_API_KEY or ANTHROPIC_API_KEY "
+            "in Streamlit Cloud → Settings → Secrets."
+        )
+
+
 st.set_page_config(
-    page_title="CardioAI — JoiHealth",
+    page_title="CardioAI Nova",
     page_icon="🫀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1466,6 +1544,137 @@ def extract_with_vision(img):
     # Both failed — return combined error details
     combined = f"Gemini: [{gemini_status}] | Claude: [{claude_status}]"
     return None, combined
+
+
+def vision_api_call(prompt: str, image_b64: str,
+                    image_mime: str = "image/jpeg") -> tuple:
+    """
+    Central vision API caller used by all imaging modules.
+    Strategy:
+      1. Try Gemini 2.0 Flash (primary)
+      2. On quota/rate-limit (429) → wait briefly then retry once
+      3. On continued failure → fall back to Claude Vision (Sonnet)
+      4. If both fail → return (None, error_message)
+
+    Returns: (response_text: str | None, model_used: str)
+    """
+    import time, base64, io
+
+    GEMINI_MODELS = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-flash-latest",
+    ]
+
+    # ── Try Gemini ────────────────────────────────────────────
+    google_key = get_secret("GOOGLE_API_KEY")
+    if google_key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=google_key)
+            for model_name in GEMINI_MODELS:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    response = model.generate_content([
+                        {"mime_type": image_mime, "data": image_b64},
+                        prompt
+                    ])
+                    return response.text, f"Gemini ({model_name})"
+                except Exception as me:
+                    err_str = str(me)
+                    if "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower():
+                        # Quota hit — try next model after short pause
+                        time.sleep(2)
+                        continue
+                    elif "404" in err_str or "not found" in err_str.lower():
+                        continue   # model not available — try next
+                    else:
+                        break      # different error — skip remaining gemini models
+        except ImportError:
+            pass
+
+    # ── Fall back to Claude Vision ────────────────────────────
+    anthropic_key = get_secret("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=anthropic_key)
+            msg = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64",
+                        "media_type": image_mime,
+                        "data": image_b64,
+                    }},
+                    {"type": "text", "text": prompt},
+                ]}]
+            )
+            return msg.content[0].text, "Claude Vision (Sonnet)"
+        except Exception as ce:
+            return None, (
+                f"Both APIs failed. Gemini: quota exceeded. "
+                f"Claude: {str(ce)[:120]}. "
+                f"Please wait a few minutes and try again, or upgrade your Gemini API plan at "
+                f"https://ai.dev/rate-limit"
+            )
+
+    return None, (
+        "No Vision API key available. "
+        "Add GOOGLE_API_KEY or ANTHROPIC_API_KEY to Streamlit secrets."
+    )
+
+def text_api_call(prompt: str, max_tokens: int = 2000) -> tuple:
+    """
+    Central text-only API caller with Gemini→Claude fallback.
+    Used by Pharmaco AI Documentation, Ops AI Advisor, and any text generation.
+    Returns: (response_text: str | None, model_used: str)
+    """
+    import time
+
+    GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest"]
+
+    google_key = get_secret("GOOGLE_API_KEY")
+    if google_key:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=google_key)
+            for model_name in GEMINI_MODELS:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    response = model.generate_content(prompt)
+                    return response.text, f"Gemini ({model_name})"
+                except Exception as me:
+                    err_str = str(me)
+                    if "429" in err_str or "quota" in err_str.lower() or "rate" in err_str.lower():
+                        time.sleep(2)
+                        continue
+                    elif "404" in err_str or "not found" in err_str.lower():
+                        continue
+                    else:
+                        break
+        except ImportError:
+            pass
+
+    anthropic_key = get_secret("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=anthropic_key)
+            msg = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return msg.content[0].text, "Claude (Sonnet)"
+        except Exception as ce:
+            return None, (
+                f"Both APIs failed. Gemini: quota exceeded. Claude: {str(ce)[:120]}. "
+                f"Wait a few minutes or upgrade your Gemini plan at https://ai.dev/rate-limit"
+            )
+
+    return None, "No API key available. Add GOOGLE_API_KEY or ANTHROPIC_API_KEY to Streamlit secrets."
 
 
 # ══════════════════════════════════════════════════════════
@@ -1956,7 +2165,7 @@ models = load_models()
 xgb_explainer = load_explainer(models.get("cardio_xgb"))
 
 with st.sidebar:
-    # ── Cardiovascular Logo ────────────────────────────────────────
+    # ── CardioAI Nova Logo ────────────────────────────────────────
     import os
     logo_paths = [
         "Heart.png",
@@ -1975,15 +2184,15 @@ with st.sidebar:
         st.markdown("""
         <div style='text-align:center;padding:8px 0 4px;'>
           <span style='font-size:22px;font-weight:700;color:#0D1B2A;font-family:Georgia,serif;'>
-            Joi Health
+            CardioAI Nova
           </span><br>
           <span style='font-size:10px;color:#475569;letter-spacing:2px;'>
-            COMMITMENT TO CARE
+            CLINICAL INTELLIGENCE PLATFORM
           </span>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("<div style='text-align:center;margin:-8px 0 4px;'><span style='font-size:13px;font-weight:600;color:#0D1B2A;'>CardioAI</span></div>", unsafe_allow_html=True)
-    st.caption("Explainable AI for Cardiovascular Risk & Patient Retention")
+    st.caption("AI-Powered Cardiovascular Risk & Clinical Intelligence")
     st.divider()
     page = st.radio("Navigate", ["🫀 Risk Prediction","🏥 Patient Retention","📊 Model Dashboard","📄 Clinical NLP","🔬 Medical Imaging","💊 Pharmaco-Intelligence","🏥 Operational Intelligence","🏷 Clinical Codes","ℹ️ About"], label_visibility="collapsed")
     st.divider()
@@ -2828,7 +3037,7 @@ if "Risk Prediction" in page:
                     "oldpeak_delta":  (-0.02, 0.02),
                     "lri_delta":      (-0.01, 0.01),
                 },
-                # Full JoiHealth cardiac rehabilitation program
+                # Full CardioAI Nova cardiac rehabilitation program
                 "rehabilitation": {
                     "trestbps_delta": (-6.2, 1.5),
                     "chol_delta":     (-22.0, 4.5),
@@ -2842,7 +3051,7 @@ if "Risk Prediction" in page:
                 "no_intervention": "No intervention",
                 "lifestyle":       "Lifestyle changes",
                 "medication":      "Medication",
-                "rehabilitation":  "JoiHealth Rehabilitation",
+                "rehabilitation":  "CardioAI Nova Rehabilitation",
             }
 
             SCENARIO_COLORS = {
@@ -3138,7 +3347,7 @@ This patient's cardiovascular risk is **{outlook}** at **{risk_prob*100:.1f}%**.
 - **No intervention:** {no_int_5yr:.0f}% predicted risk — risk continues to rise with age and biomarker progression
 - **Lifestyle changes alone:** {np.median(all_paths['lifestyle'][:,-1])*100:.0f}% — diet and exercise slow progression significantly
 - **Medication (antihypertensive + statin):** {np.median(all_paths['medication'][:,-1])*100:.0f}% — medication produces the sharpest early reduction
-- **JoiHealth Cardiac Rehabilitation:** {rehab_5yr:.0f}% — combined programme achieves the best long-term outcome, reducing 5-year risk by **{rehab_benefit:.0f} percentage points** compared to no action
+- **CardioAI Nova Cardiac Rehabilitation:** {rehab_5yr:.0f}% — combined programme achieves the best long-term outcome, reducing 5-year risk by **{rehab_benefit:.0f} percentage points** compared to no action
 
 The shaded bands represent the 25th–75th and 10th–90th percentile uncertainty range across 600 simulated patient trajectories, reflecting natural variability in biomarker progression. Wider bands indicate higher uncertainty.
 
@@ -3162,7 +3371,7 @@ The shaded bands represent the 25th–75th and 10th–90th percentile uncertaint
                 "P25 (%)": round(np.percentile(all_paths["medication"][:, -1], 25) * 100, 1),
                 "P75 (%)": round(np.percentile(all_paths["medication"][:, -1], 75) * 100, 1),
             }, {
-                "Scenario": "JoiHealth Rehabilitation",
+                "Scenario": "CardioAI Nova Rehabilitation",
                 "5-Year Risk (%)": round(np.median(all_paths["rehabilitation"][:, -1]) * 100, 1),
                 "P25 (%)": round(np.percentile(all_paths["rehabilitation"][:, -1], 25) * 100, 1),
                 "P75 (%)": round(np.percentile(all_paths["rehabilitation"][:, -1], 75) * 100, 1),
@@ -3178,7 +3387,7 @@ The shaded bands represent the 25th–75th and 10th–90th percentile uncertaint
                     ("Forecast Interpretation",
                      f"Current risk: {risk_prob*100:.1f}% ({tier}). "
                      f"Without action: {no_int_5yr:.0f}% at 5 years. "
-                     f"With JoiHealth Rehabilitation: {rehab_5yr:.0f}% (reduction of {rehab_benefit:.0f} percentage points)."),
+                     f"With CardioAI Nova Rehabilitation: {rehab_5yr:.0f}% (reduction of {rehab_benefit:.0f} percentage points)."),
                 ],
                 docx_title="CardioAI — 5-Year Risk Trajectory Forecast",
                 docx_sections=[
@@ -3187,7 +3396,7 @@ The shaded bands represent the 25th–75th and 10th–90th percentile uncertaint
                     ("Forecast Interpretation",
                      f"Current risk: {risk_prob*100:.1f}% ({tier}). "
                      f"Without action: {no_int_5yr:.0f}% at 5 years. "
-                     f"With JoiHealth Rehabilitation: {rehab_5yr:.0f}% (reduction of {rehab_benefit:.0f} percentage points)."),
+                     f"With CardioAI Nova Rehabilitation: {rehab_5yr:.0f}% (reduction of {rehab_benefit:.0f} percentage points)."),
                 ],
                 file_stem="forecast_report",
             )
@@ -3525,12 +3734,21 @@ elif "Model Dashboard" in page:
 
 elif "Clinical NLP" in page:
     st.title("📄 Clinical Document Processing")
-    st.caption("Upload a scanned image, PDF, or paste text — extract structured clinical data using Tesseract OCR and NLP.")
+    st.caption("Upload a scanned image, PDF, or paste text — extract structured clinical data using Gemini Vision AI and NLP.")
 
-    if TESSERACT_OK: st.success(f"OCR Engine: {TESSERACT_MSG}")
-    else:            st.warning(f"OCR Engine: {TESSERACT_MSG} — image OCR unavailable, paste text instead.")
+    nlp_tab1, nlp_tab2 = st.tabs([
+        "📋 Clinical Note Extraction",
+        "🔬 Scan & Auto-Fill Investigations",
+    ])
 
-    st.divider()
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 1 — ORIGINAL CLINICAL NOTE EXTRACTION (unchanged)
+    # ══════════════════════════════════════════════════════════════════════
+    with nlp_tab1:
+        st.subheader("Clinical Note — Entity Extraction")
+        if TESSERACT_OK: st.success(f"OCR Engine: {TESSERACT_MSG}")
+        else:            st.warning(f"OCR Engine: {TESSERACT_MSG} — image OCR unavailable, paste text instead.")
+        st.divider()
 
     method = st.radio("Input method:", ["📝 Paste text", "🖼 Upload image (JPG/PNG scan)", "📑 Upload PDF"], horizontal=True)
 
@@ -3801,6 +4019,594 @@ elif "Clinical NLP" in page:
         except Exception as e:
             st.error(f"Display error: {e}")
 
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 2 — SCAN & AUTO-FILL INVESTIGATIONS
+    # ══════════════════════════════════════════════════════════════════════
+    with nlp_tab2:
+        st.subheader("🔬 Scan Any Investigation Report → Auto-Fill Risk Prediction")
+        st.info(
+            "Upload a scanned or photographed investigation report — "
+            "**spirometry, ECG printout, lab results, echo report, radiology report** — "
+            "and Gemini Vision AI will extract all values and map them directly to the "
+            "Risk Prediction module inputs. Supports upside-down, rotated, and poor-quality scans."
+        )
+
+        scan_report_type = st.selectbox(
+            "Report type (helps AI focus extraction)",
+            [
+                "🔬 Lab Results (FBS, HbA1c, Lipids, Renal, Electrolytes, LFTs, Cardiac Markers)",
+                "📈 ECG / Electrocardiograph Printout",
+                "🫁 Spirometry / Pulmonary Function Test (PFT)",
+                "❤️ Echocardiogram Report",
+                "🩻 Radiology Report (X-Ray / CT / MRI / Ultrasound)",
+                "📋 General Clinical / Discharge Summary",
+                "🔭 Endocrinology / Hormone Panel",
+                "🛡 Serology / Immunology Report",
+                "🦠 Microbiology / Culture Report",
+                "💊 Toxicology / Drug Level Report",
+                "🔬 Histopathology / Cytology Report",
+                "🌿 Allergy / IgE Report",
+            ],
+            key="scan_report_type"
+        )
+
+        scan_upload = st.file_uploader(
+            "Upload scanned investigation report (JPG, PNG, PDF)",
+            type=["jpg","jpeg","png","pdf"],
+            key="scan_upload",
+            help="Supports upside-down scans, poor lighting, handwritten annotations"
+        )
+
+        scan_col1, scan_col2 = st.columns(2)
+        with scan_col1:
+            scan_auto_rotate = st.checkbox("Auto-correct orientation (if upside-down)", value=True)
+        with scan_col2:
+            scan_enhance = st.checkbox("Enhance image contrast before reading", value=True)
+
+        if scan_upload:
+            from PIL import Image as PILImage, ImageEnhance, ImageOps
+            import base64, io
+
+            # Load and preprocess
+            if scan_upload.name.lower().endswith('.pdf'):
+                st.info("PDF detected — converting first page to image...")
+                try:
+                    import fitz  # PyMuPDF
+                    pdf_bytes = scan_upload.read()
+                    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                    page = doc[0]
+                    pix = page.get_pixmap(dpi=200)
+                    scan_img = PILImage.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                except Exception as e:
+                    st.error(f"PDF conversion error: {e}")
+                    scan_img = None
+            else:
+                scan_img = PILImage.open(scan_upload)
+
+            if scan_img:
+                # Auto-rotate if needed
+                if scan_auto_rotate:
+                    try:
+                        scan_img = ImageOps.exif_transpose(scan_img)
+                    except Exception:
+                        pass
+
+                # Enhance contrast
+                if scan_enhance:
+                    scan_img_enhanced = ImageEnhance.Contrast(
+                        ImageEnhance.Sharpness(scan_img.convert("RGB")).enhance(1.5)
+                    ).enhance(1.3)
+                else:
+                    scan_img_enhanced = scan_img.convert("RGB")
+
+                st.image(scan_img_enhanced,
+                         caption=f"Uploaded: {scan_upload.name}",
+                         use_container_width=True)
+
+                if st.button("🔍 Extract & Map Investigation Values", type="primary", key="scan_extract_btn"):
+                    with st.spinner("Reading investigation report..."):
+                        try:
+                            buf = io.BytesIO()
+                            scan_img_enhanced.save(buf, format="JPEG", quality=95)
+                            img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+                            scan_prompt = f"""You are an expert clinical data extraction AI.
+This is a scanned **{scan_report_type}** investigation report from CardioAI Nova, Nigeria.
+
+The image may be rotated, upside-down, or of variable quality. Read it carefully regardless of orientation.
+
+Your task: Extract ALL numerical values, results, interpretations, and patient demographics from this report.
+Then map each extracted value to the corresponding input field in a cardiovascular risk assessment system.
+
+Return your response in this EXACT JSON structure (include only fields that have values in the report — use null for missing):
+
+{{
+  "patient_info": {{
+    "name": null,
+    "id": null,
+    "age": null,
+    "sex": null,
+    "height_cm": null,
+    "weight_kg": null,
+    "bmi": null,
+    "date": null,
+    "referring_physician": null
+  }},
+  "vital_signs": {{
+    "sbp_mmhg": null,
+    "dbp_mmhg": null,
+    "heart_rate_bpm": null,
+    "spo2_pct": null,
+    "rr_breaths_per_min": null,
+    "temp_c": null
+  }},
+  "ecg_parameters": {{
+    "hr_bpm": null,
+    "rhythm": null,
+    "pr_interval_ms": null,
+    "qrs_duration_ms": null,
+    "qt_interval_ms": null,
+    "qtc_ms": null,
+    "axis_degrees": null,
+    "st_depression_mm": null,
+    "st_elevation_mm": null,
+    "t_wave": null,
+    "interpretation": null
+  }},
+  "spirometry": {{
+    "fev1_litres": null,
+    "fev1_pct_predicted": null,
+    "fvc_litres": null,
+    "fvc_pct_predicted": null,
+    "fev1_fvc_ratio": null,
+    "pef_l_per_min": null,
+    "pef_pct_predicted": null,
+    "fef2575_litres": null,
+    "tlc_litres": null,
+    "pattern": null,
+    "severity": null,
+    "interpretation": null
+  }},
+  "blood_glucose": {{
+    "fbs_mg_dl": null,
+    "rbs_mg_dl": null,
+    "hba1c_pct": null,
+    "ogtt_2hr_mg_dl": null
+  }},
+  "lipid_profile": {{
+    "total_cholesterol_mg_dl": null,
+    "ldl_mg_dl": null,
+    "hdl_mg_dl": null,
+    "triglycerides_mg_dl": null,
+    "vldl_mg_dl": null,
+    "tc_hdl_ratio": null
+  }},
+  "renal": {{
+    "urea_mmol_l": null,
+    "creatinine_umol_l": null,
+    "egfr_ml_min": null,
+    "uric_acid_umol_l": null,
+    "urine_albumin_mg_l": null
+  }},
+  "electrolytes": {{
+    "sodium_mmol_l": null,
+    "potassium_mmol_l": null,
+    "chloride_mmol_l": null,
+    "bicarbonate_mmol_l": null,
+    "calcium_mmol_l": null,
+    "magnesium_mmol_l": null,
+    "phosphate_mmol_l": null
+  }},
+  "liver_function": {{
+    "alt_u_l": null,
+    "ast_u_l": null,
+    "alp_u_l": null,
+    "ggt_u_l": null,
+    "total_bilirubin_umol_l": null,
+    "albumin_g_l": null,
+    "total_protein_g_l": null
+  }},
+  "cardiac_markers": {{
+    "troponin_i_ng_l": null,
+    "ck_mb_u_l": null,
+    "bnp_pg_ml": null,
+    "nt_probnp_pg_ml": null,
+    "crp_mg_l": null,
+    "hscrp_mg_l": null,
+    "ldh_u_l": null
+  }},
+  "haematology": {{
+    "haemoglobin_g_dl": null,
+    "wbc_x10_9_l": null,
+    "platelets_x10_9_l": null,
+    "esr_mm_hr": null,
+    "inr": null
+  }},
+  "endocrinology": {{
+    "tsh_miu_l": null,
+    "ft4_pmol_l": null,
+    "ft3_pmol_l": null,
+    "cortisol_nmol_l": null,
+    "psa_ng_ml": null,
+    "testosterone_nmol_l": null
+  }},
+  "echo_parameters": {{
+    "ef_pct": null,
+    "ivsd_mm": null,
+    "lvedd_mm": null,
+    "lvesd_mm": null,
+    "pwed_mm": null,
+    "lv_function": null,
+    "valvular_findings": null,
+    "interpretation": null
+  }},
+  "microbiology": {{
+    "blood_culture": null,
+    "urine_culture": null,
+    "malaria_rdt": null,
+    "covid19": null,
+    "procalcitonin_ng_ml": null
+  }},
+  "tumour_markers": {{
+    "ca125_u_ml": null,
+    "cea_ng_ml": null,
+    "afp_ng_ml": null,
+    "psa_ng_ml": null
+  }},
+  "diagnoses_found": [],
+  "medications_found": [],
+  "clinical_interpretation": null,
+  "urgent_findings": [],
+  "normal_ranges_provided": null,
+  "raw_extracted_text": null
+}}
+
+IMPORTANT INSTRUCTIONS:
+1. Read the ENTIRE image including headers, footers, tables, graphs, and annotations
+2. If the image is upside down or rotated, read it anyway
+3. Extract ALL numerical values with their units
+4. For spirometry: extract both absolute values AND % predicted
+5. For ECG: extract all interval measurements visible
+6. For labs: include reference ranges if printed
+7. Convert units if needed (e.g. mmol/L to mg/dL for glucose: multiply by 18)
+8. List ALL diagnoses mentioned (including interpretations like "Restrictive disorder")
+9. Note any URGENT or CRITICAL findings
+10. Return ONLY valid JSON — no markdown, no explanation text outside the JSON"""
+
+                            raw_response_tuple = vision_api_call(scan_prompt, img_b64)
+                            raw_response = raw_response_tuple[0].strip() if raw_response_tuple[0] else ""
+                            if not raw_response:
+                                st.error(f"Scan extraction failed: {raw_response_tuple[1]}")
+                                raw_response = ""
+                            # Clean JSON
+                            if raw_response.startswith("```"):
+                                raw_response = raw_response.split("```")[1]
+                                if raw_response.startswith("json"):
+                                    raw_response = raw_response[4:]
+                            raw_response = raw_response.strip().rstrip("```").strip()
+                            st.session_state["scan_result"] = raw_response
+                            st.session_state["scan_report_type_done"] = scan_report_type
+
+                        except Exception as e:
+                            st.error(f"Scan extraction error: {e}")
+
+        # ── Display extracted results ─────────────────────────────────
+        scan_result_raw = st.session_state.get("scan_result","")
+        if scan_result_raw:
+            import json
+            try:
+                data = json.loads(scan_result_raw)
+            except Exception:
+                # Try to extract JSON from response
+                import re
+                json_match = re.search(r'\{.*\}', scan_result_raw, re.DOTALL)
+                try:
+                    data = json.loads(json_match.group()) if json_match else {}
+                except Exception:
+                    data = {}
+                    st.warning("Could not parse structured data — showing raw extraction below.")
+                    st.code(scan_result_raw)
+
+            if data:
+                st.success("✅ Investigation report extracted successfully")
+                st.divider()
+
+                # ── Patient Info ───────────────────────────────────
+                pt = data.get("patient_info",{})
+                if any(v for v in pt.values()):
+                    st.subheader("👤 Patient Information")
+                    pi_cols = st.columns(4)
+                    fields = [("Name",pt.get("name")),("ID",pt.get("id")),
+                              ("Age",pt.get("age")),("Sex",pt.get("sex")),
+                              ("Height",f"{pt.get('height_cm')} cm" if pt.get("height_cm") else None),
+                              ("Weight",f"{pt.get('weight_kg')} kg" if pt.get("weight_kg") else None),
+                              ("BMI",pt.get("bmi")),("Date",pt.get("date"))]
+                    for idx,(label,val) in enumerate(fields):
+                        if val:
+                            with pi_cols[idx%4]: st.metric(label, val)
+
+                # ── Urgent Findings ────────────────────────────────
+                urgent = data.get("urgent_findings",[])
+                if urgent:
+                    st.subheader("🚨 Urgent Findings")
+                    for u in urgent:
+                        st.error(f"🚨 {u}")
+
+                # ── Clinical Interpretation ────────────────────────
+                interp = data.get("clinical_interpretation")
+                if interp:
+                    st.subheader("📋 Clinical Interpretation")
+                    st.info(interp)
+
+                # ── Diagnoses ──────────────────────────────────────
+                diag = data.get("diagnoses_found",[])
+                if diag:
+                    st.subheader("🏷 Diagnoses / Interpretations Found")
+                    for d in diag:
+                        st.markdown(f"• **{d}**")
+
+                # ── Spirometry ─────────────────────────────────────
+                spiro = data.get("spirometry",{})
+                if any(v for v in spiro.values() if v is not None):
+                    st.subheader("🫁 Spirometry Results")
+                    sp_cols = st.columns(4)
+                    spiro_fields = [
+                        ("FEV1 (L)", spiro.get("fev1_litres")),
+                        ("FEV1 % Pred", f"{spiro.get('fev1_pct_predicted')}%" if spiro.get("fev1_pct_predicted") else None),
+                        ("FVC (L)", spiro.get("fvc_litres")),
+                        ("FVC % Pred", f"{spiro.get('fvc_pct_predicted')}%" if spiro.get("fvc_pct_predicted") else None),
+                        ("FEV1/FVC", spiro.get("fev1_fvc_ratio")),
+                        ("PEF (L/min)", spiro.get("pef_l_per_min")),
+                        ("Pattern", spiro.get("pattern")),
+                        ("Severity", spiro.get("severity")),
+                    ]
+                    for idx,(label,val) in enumerate(spiro_fields):
+                        if val is not None:
+                            with sp_cols[idx%4]: st.metric(label, val)
+                    if spiro.get("interpretation"):
+                        st.warning(f"📋 {spiro['interpretation']}")
+
+                # ── ECG Parameters ─────────────────────────────────
+                ecg = data.get("ecg_parameters",{})
+                if any(v for v in ecg.values() if v is not None):
+                    st.subheader("📈 ECG Parameters")
+                    ec_cols = st.columns(4)
+                    ecg_fields = [
+                        ("HR (bpm)", ecg.get("hr_bpm")),
+                        ("PR (ms)", ecg.get("pr_interval_ms")),
+                        ("QRS (ms)", ecg.get("qrs_duration_ms")),
+                        ("QTc (ms)", ecg.get("qtc_ms")),
+                        ("ST Depression", ecg.get("st_depression_mm")),
+                        ("ST Elevation", ecg.get("st_elevation_mm")),
+                        ("Axis", ecg.get("axis_degrees")),
+                        ("Rhythm", ecg.get("rhythm")),
+                    ]
+                    for idx,(label,val) in enumerate(ecg_fields):
+                        if val is not None:
+                            with ec_cols[idx%4]: st.metric(label, val)
+                    if ecg.get("interpretation"):
+                        st.info(f"📋 {ecg['interpretation']}")
+
+                # ── Blood Glucose ──────────────────────────────────
+                glu = data.get("blood_glucose",{})
+                if any(v for v in glu.values() if v is not None):
+                    st.subheader("🩸 Blood Glucose")
+                    g_cols = st.columns(4)
+                    glu_fields = [("FBS (mg/dL)",glu.get("fbs_mg_dl")),
+                                  ("RBS (mg/dL)",glu.get("rbs_mg_dl")),
+                                  ("HbA1c (%)",glu.get("hba1c_pct")),
+                                  ("OGTT 2hr (mg/dL)",glu.get("ogtt_2hr_mg_dl"))]
+                    for idx,(label,val) in enumerate(glu_fields):
+                        if val is not None:
+                            with g_cols[idx%4]: st.metric(label, val)
+
+                # ── Lipids ─────────────────────────────────────────
+                lip = data.get("lipid_profile",{})
+                if any(v for v in lip.values() if v is not None):
+                    st.subheader("🧪 Lipid Profile")
+                    l_cols = st.columns(4)
+                    lip_fields = [("Total Chol (mg/dL)",lip.get("total_cholesterol_mg_dl")),
+                                  ("LDL (mg/dL)",lip.get("ldl_mg_dl")),
+                                  ("HDL (mg/dL)",lip.get("hdl_mg_dl")),
+                                  ("TG (mg/dL)",lip.get("triglycerides_mg_dl")),
+                                  ("VLDL (mg/dL)",lip.get("vldl_mg_dl")),
+                                  ("TC/HDL Ratio",lip.get("tc_hdl_ratio"))]
+                    for idx,(label,val) in enumerate(lip_fields):
+                        if val is not None:
+                            with l_cols[idx%4]: st.metric(label, val)
+
+                # ── Renal ──────────────────────────────────────────
+                ren = data.get("renal",{})
+                if any(v for v in ren.values() if v is not None):
+                    st.subheader("🔬 Renal Function")
+                    r_cols = st.columns(4)
+                    ren_fields = [("Urea (mmol/L)",ren.get("urea_mmol_l")),
+                                  ("Creatinine (μmol/L)",ren.get("creatinine_umol_l")),
+                                  ("eGFR (mL/min)",ren.get("egfr_ml_min")),
+                                  ("Uric Acid (μmol/L)",ren.get("uric_acid_umol_l"))]
+                    for idx,(label,val) in enumerate(ren_fields):
+                        if val is not None:
+                            with r_cols[idx%4]: st.metric(label, val)
+
+                # ── Electrolytes ───────────────────────────────────
+                elec = data.get("electrolytes",{})
+                if any(v for v in elec.values() if v is not None):
+                    st.subheader("⚡ Electrolytes")
+                    el_cols = st.columns(4)
+                    elec_fields = [("Na⁺ (mmol/L)",elec.get("sodium_mmol_l")),
+                                   ("K⁺ (mmol/L)",elec.get("potassium_mmol_l")),
+                                   ("Cl⁻ (mmol/L)",elec.get("chloride_mmol_l")),
+                                   ("HCO₃⁻ (mmol/L)",elec.get("bicarbonate_mmol_l")),
+                                   ("Ca²⁺ (mmol/L)",elec.get("calcium_mmol_l")),
+                                   ("Mg²⁺ (mmol/L)",elec.get("magnesium_mmol_l"))]
+                    for idx,(label,val) in enumerate(elec_fields):
+                        if val is not None:
+                            with el_cols[idx%4]: st.metric(label, val)
+
+                # ── Cardiac Markers ────────────────────────────────
+                card = data.get("cardiac_markers",{})
+                if any(v for v in card.values() if v is not None):
+                    st.subheader("❤️ Cardiac Markers")
+                    ca_cols = st.columns(4)
+                    card_fields = [("Troponin I (ng/L)",card.get("troponin_i_ng_l")),
+                                   ("CK-MB (U/L)",card.get("ck_mb_u_l")),
+                                   ("BNP (pg/mL)",card.get("bnp_pg_ml")),
+                                   ("NT-proBNP (pg/mL)",card.get("nt_probnp_pg_ml")),
+                                   ("CRP (mg/L)",card.get("crp_mg_l")),
+                                   ("hs-CRP (mg/L)",card.get("hscrp_mg_l"))]
+                    for idx,(label,val) in enumerate(card_fields):
+                        if val is not None:
+                            with ca_cols[idx%4]: st.metric(label, val)
+
+                # ── Echo ────────────────────────────────────────────
+                echo = data.get("echo_parameters",{})
+                if any(v for v in echo.values() if v is not None):
+                    st.subheader("❤️ Echo Parameters")
+                    ech_cols = st.columns(4)
+                    echo_fields = [("EF%",echo.get("ef_pct")),
+                                   ("IVSd (mm)",echo.get("ivsd_mm")),
+                                   ("LVEDd (mm)",echo.get("lvedd_mm")),
+                                   ("LVESd (mm)",echo.get("lvesd_mm")),
+                                   ("PWed (mm)",echo.get("pwed_mm")),
+                                   ("LV Function",echo.get("lv_function"))]
+                    for idx,(label,val) in enumerate(echo_fields):
+                        if val is not None:
+                            with ech_cols[idx%4]: st.metric(label, val)
+                    if echo.get("interpretation"):
+                        st.info(f"📋 {echo['interpretation']}")
+
+                # ── Endocrinology ──────────────────────────────────
+                endo = data.get("endocrinology",{})
+                if any(v for v in endo.values() if v is not None):
+                    st.subheader("🔭 Endocrinology")
+                    en_cols = st.columns(4)
+                    endo_fields = [("TSH (mIU/L)",endo.get("tsh_miu_l")),
+                                   ("Free T4 (pmol/L)",endo.get("ft4_pmol_l")),
+                                   ("Free T3 (pmol/L)",endo.get("ft3_pmol_l")),
+                                   ("Cortisol (nmol/L)",endo.get("cortisol_nmol_l")),
+                                   ("PSA (ng/mL)",endo.get("psa_ng_ml")),
+                                   ("Testosterone (nmol/L)",endo.get("testosterone_nmol_l"))]
+                    for idx,(label,val) in enumerate(endo_fields):
+                        if val is not None:
+                            with en_cols[idx%4]: st.metric(label, val)
+
+                # ── Medications ────────────────────────────────────
+                meds = data.get("medications_found",[])
+                if meds:
+                    st.subheader("💊 Medications Found")
+                    st.markdown(", ".join([f"**{m}**" for m in meds]))
+
+                st.divider()
+
+                # ── Auto-Fill Guidance ──────────────────────────────
+                st.subheader("📝 Auto-Fill Guidance for Risk Prediction Module")
+                st.caption("Use these extracted values when filling in the Risk Prediction tabs.")
+
+                guide_rows = []
+
+                # Vitals
+                vs = data.get("vital_signs",{})
+                if vs.get("sbp_mmhg"): guide_rows.append(("Vital Signs → Systolic BP", vs["sbp_mmhg"], "mmHg"))
+                if vs.get("dbp_mmhg"): guide_rows.append(("Vital Signs → Diastolic BP", vs["dbp_mmhg"], "mmHg"))
+                if vs.get("heart_rate_bpm"): guide_rows.append(("Vital Signs → Resting HR", vs["heart_rate_bpm"], "bpm"))
+                if vs.get("spo2_pct"): guide_rows.append(("Vital Signs → SpO₂", vs["spo2_pct"], "%"))
+
+                # ECG
+                if ecg.get("hr_bpm"): guide_rows.append(("ECG → Heart Rate", ecg["hr_bpm"], "bpm"))
+                if ecg.get("pr_interval_ms"): guide_rows.append(("ECG → PR Interval", ecg["pr_interval_ms"], "ms"))
+                if ecg.get("qrs_duration_ms"): guide_rows.append(("ECG → QRS Duration", ecg["qrs_duration_ms"], "ms"))
+                if ecg.get("qtc_ms"): guide_rows.append(("ECG → QTc", ecg["qtc_ms"], "ms"))
+                if ecg.get("st_depression_mm"): guide_rows.append(("ECG → ST Depression (oldpeak)", ecg["st_depression_mm"], "mm"))
+                if ecg.get("rhythm"): guide_rows.append(("ECG → Rhythm", ecg["rhythm"], ""))
+
+                # Blood glucose
+                if glu.get("fbs_mg_dl"):
+                    guide_rows.append(("FBS/Diabetes → Fasting Blood Sugar", glu["fbs_mg_dl"], "mg/dL"))
+                    fbs_flag = "Yes (>120)" if float(glu["fbs_mg_dl"]) > 120 else "No"
+                    guide_rows.append(("FBS/Diabetes → FBS >120 flag", fbs_flag, ""))
+                if glu.get("hba1c_pct"): guide_rows.append(("FBS/Diabetes → HbA1c", glu["hba1c_pct"], "%"))
+                if glu.get("rbs_mg_dl"): guide_rows.append(("FBS/Diabetes → Random Blood Sugar", glu["rbs_mg_dl"], "mg/dL"))
+
+                # Lipids
+                if lip.get("total_cholesterol_mg_dl"): guide_rows.append(("Lipid Profile → Total Cholesterol", lip["total_cholesterol_mg_dl"], "mg/dL"))
+                if lip.get("ldl_mg_dl"): guide_rows.append(("Lipid Profile → LDL", lip["ldl_mg_dl"], "mg/dL"))
+                if lip.get("hdl_mg_dl"): guide_rows.append(("Lipid Profile → HDL", lip["hdl_mg_dl"], "mg/dL"))
+                if lip.get("triglycerides_mg_dl"): guide_rows.append(("Lipid Profile → Triglycerides", lip["triglycerides_mg_dl"], "mg/dL"))
+
+                # Renal
+                if ren.get("urea_mmol_l"): guide_rows.append(("E/U/Cr → Urea", ren["urea_mmol_l"], "mmol/L"))
+                if ren.get("creatinine_umol_l"): guide_rows.append(("E/U/Cr → Creatinine", ren["creatinine_umol_l"], "μmol/L"))
+                if ren.get("egfr_ml_min"): guide_rows.append(("E/U/Cr → eGFR", ren["egfr_ml_min"], "mL/min"))
+
+                # Electrolytes
+                if elec.get("sodium_mmol_l"): guide_rows.append(("Electrolytes → Na⁺", elec["sodium_mmol_l"], "mmol/L"))
+                if elec.get("potassium_mmol_l"): guide_rows.append(("Electrolytes → K⁺", elec["potassium_mmol_l"], "mmol/L"))
+
+                # Cardiac markers
+                if card.get("troponin_i_ng_l"): guide_rows.append(("Chemistry → Troponin I", card["troponin_i_ng_l"], "ng/L"))
+                if card.get("bnp_pg_ml"): guide_rows.append(("Chemistry → BNP", card["bnp_pg_ml"], "pg/mL"))
+                if card.get("crp_mg_l"): guide_rows.append(("Chemistry → CRP", card["crp_mg_l"], "mg/L"))
+
+                # Echo
+                if echo.get("ef_pct"): guide_rows.append(("Imaging → Echocardiogram EF%", echo["ef_pct"], "%"))
+                if echo.get("lvedd_mm"): guide_rows.append(("Imaging → Echo LVEDd", echo["lvedd_mm"], "mm"))
+
+                # Spirometry → maps to symptoms
+                if spiro.get("pattern"):
+                    guide_rows.append(("Demographics → Respiratory pattern", spiro["pattern"], ""))
+                if spiro.get("fev1_pct_predicted"):
+                    guide_rows.append(("Demographics → FEV1 % predicted", spiro["fev1_pct_predicted"], "%"))
+
+                # Endocrine
+                if endo.get("tsh_miu_l"): guide_rows.append(("Endocrinology → TSH", endo["tsh_miu_l"], "mIU/L"))
+                if endo.get("ft4_pmol_l"): guide_rows.append(("Endocrinology → Free T4", endo["ft4_pmol_l"], "pmol/L"))
+
+                # Patient demographics
+                if pt.get("age"): guide_rows.append(("Demographics → Age", pt["age"], "years"))
+                if pt.get("sex"): guide_rows.append(("Demographics → Sex", pt["sex"], ""))
+                if pt.get("weight_kg"): guide_rows.append(("Demographics → Weight", pt["weight_kg"], "kg"))
+                if pt.get("height_cm"): guide_rows.append(("Demographics → Height", pt["height_cm"], "cm"))
+                if pt.get("bmi"): guide_rows.append(("Demographics → BMI", pt["bmi"], "kg/m²"))
+
+                if guide_rows:
+                    guide_df = pd.DataFrame(guide_rows, columns=["Risk Prediction Input Field","Extracted Value","Unit"])
+                    st.dataframe(guide_df, use_container_width=True, hide_index=True)
+
+                    # ── Export ─────────────────────────────────────
+                    st.divider()
+
+                    # Build comprehensive export df
+                    all_sections = []
+                    if any(v for v in pt.values() if v): all_sections.append(("Patient Information", pd.DataFrame([pt])))
+                    if guide_rows: all_sections.append(("Auto-Fill Values for Risk Prediction", guide_df))
+                    if diag: all_sections.append(("Diagnoses / Interpretations", "\n".join(f"• {d}" for d in diag)))
+                    if urgent: all_sections.append(("⚠ Urgent Findings", "\n".join(f"• {u}" for u in urgent)))
+                    if meds: all_sections.append(("Medications", ", ".join(meds)))
+                    if interp: all_sections.append(("Clinical Interpretation", interp))
+
+                    export_buttons(
+                        "Scan & Auto-Fill",
+                        csv_df=guide_df,
+                        excel_sheets={"Auto-Fill Values": guide_df,
+                                      "Patient Info": pd.DataFrame([pt]) if any(v for v in pt.values() if v) else pd.DataFrame()},
+                        pdf_title="CardioAI — Investigation Report Extraction & Auto-Fill",
+                        pdf_sections=all_sections,
+                        docx_title="CardioAI — Investigation Report Extraction & Auto-Fill",
+                        docx_sections=all_sections,
+                        file_stem="scan_autofill",
+                    )
+                else:
+                    st.info("No values could be mapped to Risk Prediction inputs from this report.")
+
+        st.divider()
+        st.caption(
+            "**Supported report types:** Spirometry/PFT · 12-Lead ECG · Lab results "
+            "(FBS, HbA1c, lipids, renal, electrolytes, LFTs, cardiac markers) · "
+            "Echocardiogram · Radiology report · Discharge summary · "
+            "Endocrinology · Serology · Microbiology · Histopathology · Allergy · Toxicology. "
+            "Powered by Gemini Vision 2.0 Flash. GOOGLE_API_KEY required in Streamlit secrets."
+        )
+
 # ══════════════════════════════════════════════════════════
 # PAGE 5 — MEDICAL IMAGING (CNN)
 # ══════════════════════════════════════════════════════════
@@ -4011,7 +4817,7 @@ elif "Medical Imaging" in page:
             report_lines = [
                 "CHEST X-RAY AI ANALYSIS REPORT",
                 f"Generated: {pd.Timestamp.now().strftime('%d %B %Y %H:%M')}",
-                "System: CardioAI DenseNet-121 | JoiHealth Polyclinics", "",
+                "System: CardioAI DenseNet-121 | CardioAI Nova", "",
                 f"Cardiothoracic Ratio: {ctr if ctr else 'Not computed'}",
                 f"Cardiomegaly (CTR≥0.50): {'YES' if cardiomegaly else 'No' if ctr else 'N/A'}",
                 f"Total pathologies flagged: {len(flags)}", "",
@@ -4116,20 +4922,13 @@ elif "Medical Imaging" in page:
             st.image(echo_img, caption=f"Uploaded: {echo_upload.name}", use_container_width=True)
 
             if st.button("🔍 Analyse Echo with Gemini Vision AI", type="primary", key="echo_gemini_btn"):
-                with st.spinner("Gemini Vision AI analysing echocardiogram..."):
+                with st.spinner("Analysing echocardiogram..."):
                     try:
-                        import google.generativeai as genai
                         import base64, io
-                        api_key = st.secrets.get("GOOGLE_API_KEY","")
-                        if not api_key:
-                            st.warning("GOOGLE_API_KEY not set in Streamlit secrets.")
-                        else:
-                            genai.configure(api_key=api_key)
-                            gemini = genai.GenerativeModel("gemini-2.0-flash")
-                            buf = io.BytesIO()
-                            echo_img.save(buf, format="JPEG")
-                            img_b64 = base64.b64encode(buf.getvalue()).decode()
-                            echo_prompt = f"""You are a cardiologist reviewing an echocardiogram image.
+                        buf = io.BytesIO()
+                        echo_img.save(buf, format="JPEG", quality=95)
+                        img_b64 = base64.b64encode(buf.getvalue()).decode()
+                        echo_prompt = f"""You are a cardiologist reviewing an echocardiogram image.
 Echo view: {echo_view} | Doppler mode: {echo_modality}
 Measured dimensions — IVSd: {echo_ivsd}mm | LVEDd: {echo_lvedd}mm | LVESd: {echo_lvesd}mm | PWed: {echo_pwed}mm
 Estimated EF (Teichholz): {ef_teich if ef_teich else 'not calculated'}%
@@ -4148,12 +4947,12 @@ Please provide a structured echo report including:
 10. Limitations of this assessment
 
 Be concise and clinically precise. Flag any urgent findings clearly."""
-                            response = gemini.generate_content([
-                                {"mime_type":"image/jpeg","data":img_b64},
-                                echo_prompt
-                            ])
-                            echo_report = response.text
+                        echo_report, model_used = vision_api_call(echo_prompt, img_b64)
+                        if echo_report:
                             st.session_state["echo_report"] = echo_report
+                            st.caption(f"Analysis by: {model_used}")
+                        else:
+                            st.error(f"Echo analysis failed: {model_used}")
                     except Exception as e:
                         st.error(f"Echo analysis error: {e}")
 
@@ -4240,71 +5039,31 @@ Be concise and clinically precise. Flag any urgent findings clearly."""
                 st.image(ecg_img, caption=f"Uploaded: {ecg_img_upload.name}", use_container_width=True)
 
                 if st.button("🔍 Interpret ECG with Gemini Vision AI", type="primary", key="ecg_gemini_btn"):
-                    with st.spinner("Gemini Vision AI reading 12-lead ECG..."):
+                    with st.spinner("Reading 12-lead ECG..."):
                         try:
-                            import google.generativeai as genai
                             import base64, io
-                            api_key = st.secrets.get("GOOGLE_API_KEY","")
-                            if not api_key:
-                                st.warning("GOOGLE_API_KEY not set in Streamlit secrets.")
+                            buf = io.BytesIO()
+                            ecg_img.save(buf, format="JPEG", quality=95)
+                            img_b64 = base64.b64encode(buf.getvalue()).decode()
+                            ecg_prompt = f"""You are an expert cardiologist interpreting a 12-lead ECG.
+Patient: Age {ecg_patient_age}, {ecg_patient_sex} | Symptoms: {', '.join(ecg_symptoms)}
+History: MI: {ecg_hx_mi} | HTN: {ecg_hx_htn} | Medications: {ecg_medications or 'None'} | Speed: {ecg_speed}
+
+Provide a complete structured ECG report:
+1. TECHNICAL QUALITY — paper speed, calibration, lead placement
+2. RHYTHM — rate (bpm), regularity, diagnosis
+3. INTERVALS & AXES — PR, QRS, QT/QTc (ms), P/QRS axis
+4. WAVEFORMS — P waves, QRS, ST segments (lead-by-lead if abnormal), T waves, Q waves, U waves
+5. SPECIFIC FINDINGS — LVH, chamber enlargement, ischaemia, infarction territory, conduction defects
+6. CLINICAL IMPRESSION — primary diagnosis, differential, urgency: ROUTINE/URGENT/EMERGENCY
+7. RECOMMENDATIONS — immediate actions, further investigations
+Flag STEMI, LBBB, complete heart block, VT prominently."""
+                            ecg_report, model_used = vision_api_call(ecg_prompt, img_b64)
+                            if ecg_report:
+                                st.session_state["ecg_report"] = ecg_report
+                                st.caption(f"Interpreted by: {model_used}")
                             else:
-                                genai.configure(api_key=api_key)
-                                gemini = genai.GenerativeModel("gemini-2.0-flash")
-                                buf = io.BytesIO()
-                                ecg_img.save(buf, format="JPEG")
-                                img_b64 = base64.b64encode(buf.getvalue()).decode()
-                                ecg_prompt = f"""You are an expert cardiologist interpreting a 12-lead ECG.
-
-Patient context:
-- Age: {ecg_patient_age} | Sex: {ecg_patient_sex}
-- Symptoms: {', '.join(ecg_symptoms)}
-- History: MI: {ecg_hx_mi} | Hypertension: {ecg_hx_htn}
-- Medications: {ecg_medications or 'None stated'}
-- Paper speed: {ecg_speed}
-
-Please provide a complete structured ECG interpretation:
-
-1. TECHNICAL QUALITY
-   - Paper speed, calibration, lead placement adequacy
-
-2. RHYTHM ANALYSIS
-   - Rate (bpm), regularity, rhythm diagnosis
-
-3. INTERVALS & AXES
-   - PR interval (ms), QRS duration (ms), QT/QTc (ms)
-   - P-wave axis, QRS axis, T-wave axis
-
-4. WAVEFORM ANALYSIS
-   - P waves: morphology, axis, duration
-   - QRS complex: morphology, voltage, bundle branch block?
-   - ST segments: elevation/depression (lead-by-lead if abnormal)
-   - T waves: morphology, inversions
-   - Q waves: pathological Q waves?
-   - U waves: present?
-
-5. SPECIFIC FINDINGS
-   - Left/Right ventricular hypertrophy criteria
-   - Chamber enlargement
-   - Ischaemia/injury pattern
-   - Infarction pattern (age, territory)
-   - Conduction abnormalities
-
-6. CLINICAL IMPRESSION
-   - Primary diagnosis
-   - Differential diagnoses
-   - Urgency level: ROUTINE / URGENT / EMERGENCY
-
-7. RECOMMENDATIONS
-   - Immediate actions if any
-   - Further investigations
-
-Flag any STEMI, LBBB, complete heart block, VT, or other emergency findings in RED CAPITALS."""
-
-                                response = gemini.generate_content([
-                                    {"mime_type":"image/jpeg","data":img_b64},
-                                    ecg_prompt
-                                ])
-                                st.session_state["ecg_report"] = response.text
+                                st.error(f"ECG interpretation failed: {model_used}")
                         except Exception as e:
                             st.error(f"ECG interpretation error: {e}")
 
@@ -4462,86 +5221,36 @@ Flag any STEMI, LBBB, complete heart block, VT, or other emergency findings in R
             st.image(fundus_img, caption=f"Uploaded: {fundus_upload.name}", use_container_width=True)
 
             if st.button("🔍 Analyse Fundus with Gemini Vision AI", type="primary", key="fundus_gemini_btn"):
-                with st.spinner("Gemini Vision AI analysing retinal fundus..."):
+                with st.spinner("Analysing retinal fundus..."):
                     try:
-                        import google.generativeai as genai
                         import base64, io
-                        api_key = st.secrets.get("GOOGLE_API_KEY","")
-                        if not api_key:
-                            st.warning("GOOGLE_API_KEY not set in Streamlit secrets.")
+                        buf = io.BytesIO()
+                        fundus_img.save(buf, format="JPEG", quality=95)
+                        img_b64 = base64.b64encode(buf.getvalue()).decode()
+                        fundus_prompt = f"""You are a consultant ophthalmologist and cardiologist interpreting a retinal fundus photograph for cardiovascular risk assessment.
+Eye: {fundus_eye} | Field: {fundus_field} | Dilation: {fundus_dilated}
+Clinical: SBP {fundus_sbp}mmHg | HbA1c {fundus_hba1c}% | Diabetes: {fundus_dm} ({fundus_dur} years)
+
+Provide a structured fundus report:
+1. IMAGE QUALITY — grade (1-5), field adequacy, clarity
+2. OPTIC DISC — size, CDR, colour, margins, NVD
+3. MACULA — foveal reflex, exudates, haemorrhages, oedema
+4. VASCULATURE — AV ratio, AV nicking, arterial reflex, tortuosity, NVE
+5. BACKGROUND — microaneurysms, dot/blot haemorrhages, cotton wool spots, hard/soft exudates, laser scars
+6. HYPERTENSIVE RETINOPATHY — Keith-Wagener-Barker grade (0-4)
+7. DIABETIC RETINOPATHY — ETDRS/ICDRS grade (No DR/Mild NPDR/Moderate NPDR/Severe NPDR/PDR), DME present/absent
+8. OTHER PATHOLOGY — glaucoma, ARMD, vascular occlusions
+9. CV RISK MARKERS — AV ratio, arteriolar narrowing, estimated SBP from retinal features, atherosclerosis signs
+10. CLINICAL IMPRESSION — primary finding, urgency: ROUTINE/URGENT(within 1 week)/EMERGENCY(same day), referrals
+Flag sight-threatening or life-threatening findings prominently."""
+                        fundus_report, model_used = vision_api_call(fundus_prompt, img_b64)
+                        if fundus_report:
+                            st.session_state["fundus_report"] = fundus_report
+                            st.caption(f"Analysed by: {model_used}")
                         else:
-                            genai.configure(api_key=api_key)
-                            gemini = genai.GenerativeModel("gemini-2.0-flash")
-                            buf = io.BytesIO()
-                            fundus_img.save(buf, format="JPEG")
-                            img_b64 = base64.b64encode(buf.getvalue()).decode()
-                            fundus_prompt = f"""You are a consultant ophthalmologist and cardiologist 
-interpreting a retinal fundus photograph for cardiovascular risk assessment.
-
-Clinical context:
-- Eye: {fundus_eye} | Field: {fundus_field} | Pupil: {fundus_dilated}
-- Systolic BP: {fundus_sbp} mmHg | HbA1c: {fundus_hba1c}% | Diabetes: {fundus_dm}
-- Diabetes duration: {fundus_dur} years
-
-Please provide a structured fundus report:
-
-1. IMAGE QUALITY
-   - Quality grade (1–5), adequate field, clarity
-
-2. OPTIC DISC
-   - Size, shape, colour, cup-to-disc ratio (CDR)
-   - Disc margins, neovascularisation at disc (NVD)
-
-3. MACULA
-   - Foveal reflex, hard exudates, haemorrhages, oedema
-
-4. RETINAL VASCULATURE
-   - Arteriolar calibre (CRAE estimate)
-   - AV ratio (normal ~0.67), AV nicking
-   - Arterial light reflex (copper/silver wiring)
-   - Tortuosity, neovascularisation elsewhere (NVE)
-
-5. BACKGROUND RETINA
-   - Microaneurysms, dot/blot haemorrhages
-   - Flame haemorrhages, cotton wool spots
-   - Hard exudates, soft exudates
-   - Laser scars (previous treatment)
-
-6. HYPERTENSIVE RETINOPATHY GRADING (Keith-Wagener-Barker)
-   - Grade 0: Normal
-   - Grade 1: Mild arteriolar narrowing
-   - Grade 2: AV nicking (Grade 1 + crossing changes)
-   - Grade 3: Grade 2 + haemorrhages/exudates/cotton wool
-   - Grade 4: Grade 3 + papilloedema (malignant hypertension)
-
-7. DIABETIC RETINOPATHY GRADING (ETDRS/ICDRS)
-   - No DR / Mild NPDR / Moderate NPDR / Severe NPDR / PDR
-   - Diabetic macular oedema: present/absent
-
-8. OTHER PATHOLOGY
-   - Glaucomatous changes, ARMD, vascular occlusions, other
-
-9. CARDIOVASCULAR RISK MARKERS
-   - AV ratio, arteriolar narrowing, vessel tortuosity
-   - Estimated contribution to CV risk (Low/Moderate/High)
-   - Predicted systolic BP range from retinal features
-   - Signs consistent with atherosclerosis
-
-10. CLINICAL IMPRESSION & RECOMMENDATIONS
-    - Primary diagnosis / most significant finding
-    - Urgency: ROUTINE / URGENT (refer within 1 week) / EMERGENCY (same day)
-    - Referrals recommended
-
-Flag any sight-threatening or life-threatening findings prominently."""
-
-                            response = gemini.generate_content([
-                                {"mime_type":"image/jpeg","data":img_b64},
-                                fundus_prompt
-                            ])
-                            st.session_state["fundus_report"] = response.text
+                            st.error(f"Fundus analysis failed: {model_used}")
                     except Exception as e:
                         st.error(f"Fundus analysis error: {e}")
-
             fundus_report = st.session_state.get("fundus_report","")
             if fundus_report:
                 st.divider()
@@ -4986,7 +5695,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "Safe during exercise. Does not blunt heart rate response. May cause peripheral oedema — monitor in rehab patients.",
             "contraindications": ["Severe aortic stenosis", "Cardiogenic shock"],
             "cautions": ["Heart failure with reduced EF (use with caution)", "Elderly — start 2.5mg"],
-            "nigeria_availability": "High — generic widely available",
+            "availability": "High — generic widely available",
             "cost_tier": "Low (₦500–₦1,500/month)",
             "interactions": {
                 "Simvastatin": ("Major", "Amlodipine inhibits CYP3A4 — simvastatin plasma levels increase up to 77%. Cap simvastatin at 20mg/day or switch to rosuvastatin."),
@@ -5004,7 +5713,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "First-choice post-MI rehab drug. Reduces exercise-induced BP surge. Monitor for dry cough (10–15% of patients — more common in African patients, up to 30–40%).",
             "contraindications": ["Pregnancy", "Bilateral renal artery stenosis", "History of angioedema with ACEi", "Hyperkalaemia (K⁺ >5.5 mmol/L)"],
             "cautions": ["CKD (reduce dose if eGFR <30)", "Concurrent NSAID use (↓ efficacy + ↑ renal risk)", "Elderly — risk of first-dose hypotension"],
-            "nigeria_availability": "High — generic available, on NHIS formulary",
+            "availability": "High — generic available, on standard formulary",
             "cost_tier": "Low (₦400–₦1,200/month)",
             "interactions": {
                 "Spironolactone": ("Major", "Combined with ACEi — significant hyperkalaemia risk. Monitor K⁺ within 1 week of starting."),
@@ -5020,10 +5729,10 @@ elif "Pharmaco-Intelligence" in page:
             "indications": ["Hypertension", "Heart Failure (ACEi-intolerant)", "Diabetic nephropathy", "Stroke prevention in LVH"],
             "standard_dose": "25–100 mg once daily",
             "mechanism": "Blocks AT₁ receptor → prevents angiotensin II vasoconstriction. Unlike ACEi, does not accumulate bradykinin — lower cough rate.",
-            "rehab_notes": "Preferred over ACEi in patients who develop ACEi cough (common in Nigerian patients). Identical cardiac protection benefits.",
+            "rehab_notes": "Preferred over ACEi in patients who develop ACEi cough (common in patients). Identical cardiac protection benefits.",
             "contraindications": ["Pregnancy", "Bilateral renal artery stenosis", "Hyperkalaemia"],
             "cautions": ["CKD (reduce dose)", "Volume depletion (risk of hypotension)", "Do NOT combine with ACEi or aliskiren (ONTARGET trial showed harm)"],
-            "nigeria_availability": "Moderate — available in major pharmacies",
+            "availability": "Moderate — available in major pharmacies",
             "cost_tier": "Low-Medium (₦1,000–₦3,000/month)",
             "interactions": {
                 "ACE Inhibitors": ("Contraindicated", "Dual RAS blockade — ↑ hypotension, hyperkalaemia, renal failure. ONTARGET trial confirmed harm."),
@@ -5041,7 +5750,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "⚠ CRITICAL REHAB NOTE: Beta-blockers blunt heart rate response to exercise. Use Karvonen formula with resting HR correction. Target perceived exertion (RPE 11–14) rather than heart rate targets in patients on beta-blockers.",
             "contraindications": ["Bradycardia (<50 bpm)", "Heart block (2nd/3rd degree)", "Severe asthma/COPD (use bisoprolol if needed)", "Cardiogenic shock"],
             "cautions": ["Diabetes — may mask hypoglycaemia symptoms", "Peripheral vascular disease", "Abrupt withdrawal — rebound tachycardia/angina"],
-            "nigeria_availability": "Very High — cheapest beta-blocker in Nigeria",
+            "availability": "Very High — cheapest beta-blocker in Nigeria",
             "cost_tier": "Very Low (₦200–₦600/month)",
             "interactions": {
                 "Verapamil/Diltiazem": ("Contraindicated", "Combined negative chronotropic effect — severe bradycardia, AV block, asystole."),
@@ -5060,7 +5769,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "Gold-standard beta-blocker in cardiac rehab HFrEF patients. Start at 1.25mg and uptitrate every 2 weeks as tolerated. Blunts HR — use RPE scale for exercise intensity.",
             "contraindications": ["Bradycardia", "Significant AV block", "Decompensated HF (acute phase)"],
             "cautions": ["COPD (monitor for bronchospasm — less risk than non-selective)", "Peripheral arterial disease"],
-            "nigeria_availability": "Moderate — available but more expensive than atenolol",
+            "availability": "Moderate — available but more expensive than atenolol",
             "cost_tier": "Medium (₦1,500–₦4,000/month)",
             "interactions": {
                 "Verapamil": ("Contraindicated", "Severe bradycardia and AV block."),
@@ -5079,7 +5788,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "⚠ Monitor for statin-induced myopathy during increased exercise in rehab. Symptoms: muscle aches, weakness, dark urine. Check CK if symptomatic. Risk ↑ with high-intensity exercise.",
             "contraindications": ["Active liver disease", "Pregnancy/breastfeeding", "Unexplained persistent ↑ transaminases"],
             "cautions": ["Concurrent CYP3A4 inhibitors (clarithromycin, amlodipine, grapefruit)", "Hypothyroidism (↑ myopathy risk)", "Heavy alcohol use"],
-            "nigeria_availability": "High — generic available",
+            "availability": "High — generic available",
             "cost_tier": "Low-Medium (₦800–₦2,500/month)",
             "interactions": {
                 "Amlodipine": ("Moderate", "CYP3A4 inhibition increases atorvastatin AUC ~18%. Monitor for myopathy."),
@@ -5099,7 +5808,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "Preferred statin in patients on multiple cardiac drugs (avoids CYP3A4 interactions). LDL reduction: 38–65%.",
             "contraindications": ["Active liver disease", "Pregnancy", "Myopathy with previous statin"],
             "cautions": ["Asian patients — use lower doses (↑ bioavailability)", "Severe renal impairment — avoid >10mg"],
-            "nigeria_availability": "Moderate — more expensive than atorvastatin",
+            "availability": "Moderate — more expensive than atorvastatin",
             "cost_tier": "Medium (₦2,000–₦6,000/month)",
             "interactions": {
                 "Antacids (aluminium/magnesium)": ("Moderate", "Reduce rosuvastatin absorption by ~50%. Give 2 hours apart."),
@@ -5117,7 +5826,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "Safe during exercise. Monitor for exercise-induced lactic acidosis in patients with renal impairment. Hold 48h before contrast procedures.",
             "contraindications": ["eGFR <30 mL/min/1.73m²", "Acute heart failure", "Severe liver disease", "IV contrast within 48 hours"],
             "cautions": ["eGFR 30–45 — reduce dose, monitor closely", "Heavy alcohol use (lactic acidosis risk)", "Vitamin B12 deficiency with long-term use"],
-            "nigeria_availability": "Very High — cheap, on NHIS formulary",
+            "availability": "Very High — cheap, on standard formulary",
             "cost_tier": "Very Low (₦200–₦800/month)",
             "interactions": {
                 "Alcohol": ("Major", "↑ lactic acidosis risk."),
@@ -5135,7 +5844,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "Continue throughout rehab. No exercise restriction. Watch for GI bleeding — prescribe with PPI (omeprazole 20mg) if high GI risk.",
             "contraindications": ["Active peptic ulcer/GI bleeding", "Aspirin hypersensitivity", "Haemophilia", "Note: No longer recommended for PRIMARY prevention in most patients — 2022 USPSTF"],
             "cautions": ["↑ bleeding with warfarin or DOACs", "Asthma (aspirin-exacerbated respiratory disease in ~10%)"],
-            "nigeria_availability": "Very High — widely available OTC",
+            "availability": "Very High — widely available OTC",
             "cost_tier": "Very Low (₦100–₦400/month)",
             "interactions": {
                 "Warfarin": ("Major", "Significantly ↑ bleeding risk. Monitor INR closely. Usually intentional in high-risk patients."),
@@ -5153,7 +5862,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "Monitor electrolytes before and during rehab — hyperkalaemia can cause fatal arrhythmias. Check K⁺ and creatinine at 1 week, 1 month, then 3-monthly.",
             "contraindications": ["Hyperkalaemia (K⁺ >5.0 mmol/L)", "Severe renal impairment (eGFR <30)", "Addison's disease"],
             "cautions": ["Concurrent ACEi/ARB — highest hyperkalaemia risk", "Gynaecomastia (common — consider eplerenone)", "Menstrual irregularities in women"],
-            "nigeria_availability": "Moderate",
+            "availability": "Moderate",
             "cost_tier": "Low-Medium (₦800–₦2,500/month)",
             "interactions": {
                 "ACE Inhibitors/ARBs": ("Major", "Hyperkalaemia. Check K⁺ within 1 week of combination. Life-threatening if unmonitored."),
@@ -5171,7 +5880,7 @@ elif "Pharmaco-Intelligence" in page:
             "rehab_notes": "⚠ Exercise intensity monitoring essential. High-intensity exercise contraindicated with supratherapeutic INR. Avoid contact sports. Head injury risk during exercise — educate patient. Check INR before starting rehab programme.",
             "contraindications": ["Active major bleeding", "Pregnancy (1st/3rd trimester)", "Severe liver disease", "INR >3.5 — hold and review"],
             "cautions": ["Many drug and food interactions", "Narrow therapeutic window", "Elderly — ↑ bleeding risk", "Green leafy vegetables (vitamin K) — counsel on consistent dietary intake"],
-            "nigeria_availability": "Moderate — requires INR monitoring which is challenging outside major cities",
+            "availability": "Moderate — requires INR monitoring which is challenging outside major cities",
             "cost_tier": "Low (₦300–₦800/month) but INR monitoring adds cost",
             "interactions": {
                 "Aspirin": ("Major", "↑ bleeding significantly."),
@@ -5320,7 +6029,7 @@ elif "Pharmaco-Intelligence" in page:
                             if info.get("rehab_notes"):
                                 st.info(f"🏃 **Rehab note:** {info['rehab_notes']}")
                         with col_b:
-                            st.markdown(f"**Nigeria availability:** {info.get('nigeria_availability','')}")
+                            st.markdown(f"**Availability:** {info.get('nigeria_availability','')}")
                             st.markdown(f"**Cost tier:** {info.get('cost_tier','')}")
                             if info.get("contraindications"):
                                 st.markdown("**Contraindications:**")
@@ -5348,7 +6057,7 @@ elif "Pharmaco-Intelligence" in page:
                     "Dose": DRUG_DB.get(drug, {}).get("standard_dose", ""),
                     "Rationale": rationale,
                     "Evidence": stars,
-                    "Nigeria Availability": DRUG_DB.get(drug, {}).get("nigeria_availability", ""),
+                    "Nigeria Availability": DRUG_DB.get(drug, {}).get("availability", ""),
                     "Cost Tier": DRUG_DB.get(drug, {}).get("cost_tier", ""),
                     "Guideline": DRUG_DB.get(drug, {}).get("guideline_ref", ""),
                 } for drug, rationale, stars in recs])
@@ -5621,7 +6330,7 @@ elif "Pharmaco-Intelligence" in page:
                 st.markdown(f"**Standard dose:** {drug_info.get('standard_dose','')}")
                 st.markdown(f"**Licensed indications:** {', '.join(drug_info.get('indications',[]))}")
             with col_b:
-                st.markdown(f"**Nigeria availability:** {drug_info.get('nigeria_availability','')}")
+                st.markdown(f"**Availability:** {drug_info.get('nigeria_availability','')}")
                 st.markdown(f"**Cost tier:** {drug_info.get('cost_tier','')}")
                 st.info(f"🏃 **Cardiac Rehab note:** {drug_info.get('rehab_notes','No specific rehab notes')}")
 
@@ -5647,13 +6356,10 @@ elif "Pharmaco-Intelligence" in page:
             st.divider()
             st.caption(f"📚 Guideline reference: {drug_info.get('guideline_ref','')}")
 
-            # AI-enhanced explanation if Gemini available
-            if get_secret("GOOGLE_API_KEY") and patient_context.strip():
+            # AI-enhanced explanation if API available
+            if (get_secret("GOOGLE_API_KEY") or get_secret("ANTHROPIC_API_KEY")) and patient_context.strip():
                 with st.spinner("Generating AI clinical explanation..."):
                     try:
-                        import google.generativeai as genai
-                        genai.configure(api_key=get_secret("GOOGLE_API_KEY"))
-                        model_ai = genai.GenerativeModel("gemini-2.0-flash")
                         prompt = f"""You are a clinical pharmacist specialising in cardiac rehabilitation.
 
 Patient context: {patient_context}
@@ -5664,17 +6370,17 @@ Mechanism: {drug_info.get('mechanism','')}
 Indications: {', '.join(drug_info.get('indications',[]))}
 Contraindications: {', '.join(drug_info.get('contraindications',[]))}
 
-Write a concise clinical explanation (3-4 paragraphs) for a Nigerian clinician covering:
+Write a concise clinical explanation (3-4 paragraphs) for a clinician covering:
 1. Whether this drug is appropriate for THIS specific patient and why
 2. How this patient's specific clinical features (age, BMI, diagnoses, labs, co-meds) affect the drug's pharmacokinetics and pharmacodynamics
 3. What to monitor in this patient specifically
 4. Any Nigeria-specific considerations (cost, availability, alternatives)
 
 Be specific to the patient context provided. Be direct and clinical. Do not give generic information."""
-                        response = model_ai.generate_content(prompt)
+                        ai_explanation = _call_gemini(prompt)
                         st.divider()
                         st.markdown("**AI Clinical Pharmacist Explanation:**")
-                        st.markdown(response.text)
+                        st.markdown(ai_explanation)
                         st.caption("AI-generated — verify with licensed pharmacist before prescribing decisions")
                     except Exception as e:
                         st.info(f"AI explanation unavailable: {e}")
@@ -5727,7 +6433,7 @@ Be specific to the patient context provided. Be direct and clinical. Do not give
                             if info:
                                 st.success(f"✓ Drug recognised: {info.get('class','')}")
                                 st.markdown(f"**Standard dose:** {info.get('standard_dose','')}")
-                                st.markdown(f"**Nigeria availability:** {info.get('nigeria_availability','')}")
+                                st.markdown(f"**Availability:** {info.get('nigeria_availability','')}")
                                 st.markdown(f"**Cost tier:** {info.get('cost_tier','')}")
 
                                 # Rough cost estimate
@@ -5752,7 +6458,7 @@ Be specific to the patient context provided. Be direct and clinical. Do not give
                     st.divider()
                     st.markdown(f"**Estimated monthly medication cost:** ₦{total_cost_low:,} – ₦{total_cost_high:,}")
                     if total_cost_high > 20000:
-                        st.warning("💰 High medication burden — consider NHIS coverage or generic alternatives.")
+                        st.warning("💰 High medication burden — consider insurance coverage or generic alternatives.")
 
                 # Cross-drug interaction check
                 drug_names = [c["name"] for c in claims if c["name"] in DRUG_DB]
@@ -5808,17 +6514,17 @@ Be specific to the patient context provided. Be direct and clinical. Do not give
         if st.button("📋 Generate Document", type="primary", use_container_width=True, key="btn_doc"):
             if not doc_medications.strip():
                 st.warning("Please enter medications to generate documentation.")
-            elif not get_secret("GOOGLE_API_KEY"):
-                st.error("GOOGLE_API_KEY required for AI documentation generation. Add to Streamlit secrets.")
+            elif not (get_secret("GOOGLE_API_KEY") or get_secret("ANTHROPIC_API_KEY")):
+                st.error("GOOGLE_API_KEY or ANTHROPIC_API_KEY required. Add to Streamlit secrets.")
             else:
                 with st.spinner(f"Generating {doc_type}..."):
                     try:
-                        import google.generativeai as genai
-                        genai.configure(api_key=get_secret("GOOGLE_API_KEY"))
-                        model_ai = genai.GenerativeModel("gemini-2.0-flash")
-
                         prompts = {
-                            "Pharmaceutical Care Plan": f"""You are a clinical pharmacist at JoiHealth Polyclinics, Nigeria's premier cardiac rehabilitation centre.
+
+
+
+
+                            "Pharmaceutical Care Plan": f"""You are a clinical pharmacist at CardioAI Nova, a premier cardiac rehabilitation centre.
 
 Generate a complete, professional Pharmaceutical Care Plan for:
 Patient: {doc_patient_name or 'Patient'}, {doc_patient_age}yr {doc_patient_sex}
@@ -5836,9 +6542,9 @@ Include these sections:
 6. Monitoring Plan (what to check, when, target values)
 7. Follow-up plan
 
-Format professionally for a Nigerian hospital record. Be specific and clinical.""",
+Format professionally for a clinical record. Be specific and clinical.""",
 
-                            "Discharge Medication Summary": f"""You are a clinical pharmacist at JoiHealth Polyclinics.
+                            "Discharge Medication Summary": f"""You are a clinical pharmacist at CardioAI Nova.
 
 Generate a Discharge Medication Summary for:
 Patient: {doc_patient_name or 'Patient'}, {doc_patient_age}yr {doc_patient_sex}
@@ -5849,7 +6555,7 @@ Notes: {doc_additional}
 
 Include: medication name/dose/frequency/route, indication for each drug, key counselling points, what to avoid, when to seek urgent review, follow-up date recommendation.""",
 
-                            "Patient Drug Counselling Sheet": f"""Generate a patient-friendly Drug Counselling Sheet in plain English (avoid jargon) for a Nigerian patient.
+                            "Patient Drug Counselling Sheet": f"""Generate a patient-friendly Drug Counselling Sheet in plain English (avoid jargon) for a patient.
 
 Patient: {doc_patient_name or 'Patient'}, {doc_patient_age}yr {doc_patient_sex}
 Medications: {doc_medications}
@@ -5867,7 +6573,7 @@ Notes: {doc_additional}
 
 Identify: discrepancies between expected therapy and current regimen, omissions (drugs that should be present given diagnoses), duplications, inappropriate drugs, dose discrepancies. Provide recommendations for each finding.""",
 
-                            "Cardiac Rehab Pharmacy Review": f"""You are the pharmacist for JoiHealth cardiac rehabilitation programme.
+                            "Cardiac Rehab Pharmacy Review": f"""You are the pharmacist for CardioAI Nova cardiac rehabilitation programme.
 
 Generate a Cardiac Rehab Pharmacy Review for:
 Patient: {doc_patient_name or 'Patient'}, {doc_patient_age}yr {doc_patient_sex}
@@ -5879,20 +6585,20 @@ Notes: {doc_additional}
 Cover: appropriateness of current regimen for cardiac rehab, exercise-drug interactions (especially beta-blockers and heart rate targets, statins and myopathy risk, anticoagulants and exercise intensity), medication optimisation recommendations, monitoring plan for rehab duration, patient adherence strategies.""",
                         }
 
-                        response = model_ai.generate_content(prompts[doc_type])
-                        doc_text = response.text
+                        doc_text = _call_gemini(prompts[doc_type])
+
 
                         st.divider()
                         st.markdown(f"### {doc_type}")
                         st.markdown(f"**Patient:** {doc_patient_name or 'Patient'} | **Date:** {pd.Timestamp.now().strftime('%d %B %Y')}")
-                        st.markdown(f"**Generated by:** CardioAI Pharmaco-Intelligence | JoiHealth Polyclinics")
+                        st.markdown(f"**Generated by:** CardioAI Pharmaco-Intelligence | CardioAI Nova")
                         st.divider()
                         st.markdown(doc_text)
                         st.divider()
                         st.caption("⚕ This document is AI-generated and must be reviewed and signed by a licensed pharmacist before use in clinical practice.")
 
                         # Download as text
-                        full_doc = f"{doc_type}\nPatient: {doc_patient_name or 'Patient'} | Date: {pd.Timestamp.now().strftime('%d %B %Y')}\n{'='*60}\n\n{doc_text}\n\n[Generated by CardioAI Pharmaco-Intelligence — JoiHealth Polyclinics]"
+                        full_doc = f"{doc_type}\nPatient: {doc_patient_name or 'Patient'} | Date: {pd.Timestamp.now().strftime('%d %B %Y')}\n{'='*60}\n\n{doc_text}\n\n[Generated by CardioAI Pharmaco-Intelligence — CardioAI Nova | cardioai-nova.streamlit.app]"
                         st.download_button(
                             "⬇ Download Document",
                             full_doc,
@@ -5912,7 +6618,7 @@ elif "Operational Intelligence" in page:
     st.caption(
         "Real-time hospital operations monitoring — bed management, staffing optimisation, "
         "patient flow, length of stay, fall risk tracking, EHR efficiency, and bottleneck detection "
-        "for JoiHealth Polyclinics."
+        "for CardioAI Nova."
     )
 
     import datetime as dt
@@ -5925,7 +6631,7 @@ elif "Operational Intelligence" in page:
             np.random.seed(42)
             random.seed(42)
             now = dt.datetime.now()
-            locations = ["Old GRA Port Harcourt", "Ikoyi Lagos"]
+            locations = ["City Centre Clinic", "Uptown Clinic"]
             departments = ["Cardiac Rehab", "Physical Medicine", "Physiotherapy",
                            "Cardiology OPD", "Hydrotherapy", "Medical Spa"]
             diagnoses_pool = ["Hypertension", "Post-MI Rehab", "Heart Failure",
@@ -6027,7 +6733,7 @@ elif "Operational Intelligence" in page:
     # ════════════════════════════════════════════════════════
     with ops_tab1:
         st.subheader("Real-Time Bed Management")
-        loc_filter = st.selectbox("Location:", ["All", "Old GRA Port Harcourt", "Ikoyi Lagos"], key="bed_loc")
+        loc_filter = st.selectbox("Location:", ["All", "City Centre Clinic", "Uptown Clinic"], key="bed_loc")
 
         filtered = patients if loc_filter == "All" else [p for p in patients if p["location"] == loc_filter]
 
@@ -6095,7 +6801,7 @@ elif "Operational Intelligence" in page:
             with nc2:
                 new_dept = st.selectbox("Department", ["Cardiac Rehab", "Physical Medicine",
                     "Physiotherapy", "Cardiology OPD", "Hydrotherapy"], key="new_dept")
-                new_loc  = st.selectbox("Location", ["Old GRA Port Harcourt", "Ikoyi Lagos"], key="new_loc")
+                new_loc  = st.selectbox("Location", ["City Centre Clinic", "Uptown Clinic"], key="new_loc")
             with nc3:
                 new_risk = st.selectbox("Fall Risk", ["Low", "Medium", "High"], key="new_risk")
                 new_age  = st.number_input("Age", 18, 100, 55, key="new_age")
@@ -6140,7 +6846,7 @@ elif "Operational Intelligence" in page:
     # ════════════════════════════════════════════════════════
     with ops_tab2:
         st.subheader("Staff Schedule & Workload Management")
-        st.caption("Add your real JoiHealth staff below. All names and data are entered by you — nothing is auto-generated.")
+        st.caption("Add your real CardioAI Nova staff below. All names and data are entered by you — nothing is auto-generated.")
 
         # ── ADD NEW STAFF MEMBER ─────────────────────────────
         with st.expander("➕ Add Staff Member", expanded=(len(staff) == 0)):
@@ -6157,7 +6863,7 @@ elif "Operational Intelligence" in page:
                 ], key="add_role")
             with sc2:
                 new_loc   = st.selectbox("Location", [
-                    "Old GRA Port Harcourt", "Ikoyi Lagos", "Both"
+                    "City Centre Clinic", "Uptown Clinic", "Both"
                 ], key="add_loc")
                 new_shift = st.text_input("Shift hours", placeholder="e.g. 08:00–17:00", key="add_shift")
             with sc3:
@@ -6226,7 +6932,7 @@ elif "Operational Intelligence" in page:
             # Filter
             loc_filt_staff = st.selectbox(
                 "Filter by location:",
-                ["All", "Old GRA Port Harcourt", "Ikoyi Lagos"],
+                ["All", "City Centre Clinic", "Uptown Clinic"],
                 key="staff_loc"
             )
             filtered_staff = staff if loc_filt_staff == "All" else [
@@ -6721,14 +7427,14 @@ elif "Operational Intelligence" in page:
         st.subheader("AI Operations Advisor")
         st.caption(
             "Gemini AI analyses the current operational state and generates specific, "
-            "actionable recommendations for JoiHealth management."
+            "actionable recommendations for CardioAI Nova management."
         )
 
         # Build operational context summary
         ops_summary = f"""
-JoiHealth Polyclinics — Real-Time Operational Status Report
+CardioAI Nova — Real-Time Operational Status Report
 Date/Time: {dt.datetime.now().strftime('%d %B %Y, %H:%M')}
-Locations: Old GRA Port Harcourt + Ikoyi Lagos
+Locations: City Centre Clinic + Uptown Clinic
 
 PATIENT STATUS:
 - Total active patients: {len(active)}
@@ -6771,17 +7477,17 @@ QUALITY:
         auto_briefing = st.checkbox("Auto-generate full management briefing", key="auto_brief")
 
         if st.button("🤖 Get AI Recommendations", type="primary", use_container_width=True, key="btn_ops_ai"):
-            if not get_secret("GOOGLE_API_KEY"):
-                st.error("GOOGLE_API_KEY required. Add to Streamlit secrets.")
+            if not (get_secret("GOOGLE_API_KEY") or get_secret("ANTHROPIC_API_KEY")):
+                st.error("GOOGLE_API_KEY or ANTHROPIC_API_KEY required. Add to Streamlit secrets.")
             else:
                 with st.spinner("AI analysing operational state..."):
                     try:
-                        import google.generativeai as genai
-                        genai.configure(api_key=get_secret("GOOGLE_API_KEY"))
-                        model_ai = genai.GenerativeModel("gemini-2.0-flash")
+
+
+
 
                         if auto_briefing or not query.strip():
-                            prompt_text = f"""You are the chief operations advisor for JoiHealth Polyclinics, Nigeria's premier physical medicine and cardiac rehabilitation centre with locations in Old GRA Port Harcourt and Ikoyi Lagos.
+                            prompt_text = f"""You are the chief operations advisor for CardioAI Nova, a premier physical medicine and cardiac rehabilitation centre with locations in City Centre Clinic and Uptown Clinic.
 
 Here is the current real-time operational status:
 {ops_summary}
@@ -6802,9 +7508,9 @@ Generate a comprehensive Morning Management Briefing covering:
 
 7. END-OF-SHIFT GOALS (what should be achieved by 18:00 today)
 
-Be specific to JoiHealth's context as a cardiac rehab and physical medicine polyclinic. Use clinical and operational language appropriate for a medical director briefing. Format with clear numbered sections."""
+Be specific to CardioAI Nova's context as a cardiac rehab and physical medicine polyclinic. Use clinical and operational language appropriate for a medical director briefing. Format with clear numbered sections."""
                         else:
-                            prompt_text = f"""You are the chief operations advisor for JoiHealth Polyclinics.
+                            prompt_text = f"""You are the chief operations advisor for CardioAI Nova.
 
 Current operational status:
 {ops_summary}
@@ -6814,7 +7520,7 @@ Answer this specific question from management:
 
 Be specific, actionable, and concise. Reference the actual data from the operational status above. Recommend specific steps with timelines where relevant."""
 
-                        response = model_ai.generate_content(prompt_text)
+                        ops_ai_text = _call_gemini(prompt_text)
                         st.divider()
                         st.markdown("### AI Operations Advisor Response")
                         st.markdown(response.text)
@@ -6851,7 +7557,7 @@ elif "Clinical Codes" in page:
     st.title("🏷 Clinical Codes Reference")
     st.caption(
         "Search and browse ICD-10, ICD-11, ICF, SNOMED CT, and CPT codes for all conditions "
-        "and procedures at JoiHealth Polyclinics. Includes NHIS tariffs and rehab relevance."
+        "and procedures at CardioAI Nova. Includes Insurance tariffs and rehab relevance."
     )
 
     code_tab1, code_tab2 = st.tabs(["🔵 ICD / ICF / SNOMED — Diagnoses", "🟠 CPT — Procedures & Tariffs"])
@@ -6896,7 +7602,7 @@ elif "Clinical Codes" in page:
                     with r2:
                         st.markdown("**Classification**")
                         st.markdown(f"**{rec['category']}**")
-                        st.markdown("✅ NHIS Billable" if rec["nhis_billable"] else "❌ Not NHIS Billable")
+                        st.markdown("✅ Insurance Billable" if rec["nhis_billable"] else "❌ Not Insurance Billable")
                         st.markdown("🏥 Rehab Relevant" if rec["rehab_relevant"] else "")
                     with r3:
                         st.markdown("**ICF Functional Codes**")
@@ -6954,15 +7660,15 @@ elif "Clinical Codes" in page:
                     "CPT Code":        code,
                     "Description":     rec["description"],
                     "Category":        rec["category"],
-                    "NHIS Tariff (₦)": rec["nhis_tariff"],
+                    "Tariff (local currency)": rec["nhis_tariff"],
                     "Unit":            rec["unit"],
                 })
             _cpt_df = pd.DataFrame(cpt_rows)
             st.dataframe(_cpt_df, use_container_width=True, hide_index=True,
                          column_config={
-                             "NHIS Tariff (₦)": st.column_config.NumberColumn(format="₦%d"),
+                             "Tariff (local currency)": st.column_config.NumberColumn(format="₦%d"),
                          })
-            total = _cpt_df["NHIS Tariff (₦)"].sum()
+            total = _cpt_df["Tariff (local currency)"].sum()
             st.caption(f"Total estimated tariff for filtered procedures: ₦{total:,}")
             st.divider()
 
@@ -6979,26 +7685,26 @@ elif "Clinical Codes" in page:
                         "CPT Code": c,
                         "Procedure": CPT_DB[c]["description"],
                         "Category": CPT_DB[c]["category"],
-                        "NHIS Tariff (₦)": CPT_DB[c]["nhis_tariff"],
+                        "Tariff (local currency)": CPT_DB[c]["nhis_tariff"],
                         "Unit": CPT_DB[c]["unit"],
                     } for c in selected_procs]
                     bill_df = pd.DataFrame(bill_rows)
-                    bill_total = bill_df["NHIS Tariff (₦)"].sum()
+                    bill_total = bill_df["Tariff (local currency)"].sum()
                     st.dataframe(bill_df, use_container_width=True, hide_index=True)
                     st.success(f"**Total Bill: ₦{bill_total:,}**")
                     export_buttons(
                         "Procedure Bill",
                         csv_df=bill_df,
                         excel_sheets={"Procedure Bill": bill_df},
-                        pdf_title="CardioAI — JoiHealth Procedure Bill",
+                        pdf_title="CardioAI Nova Procedure Bill",
                         pdf_sections=[
                             ("Procedure Bill", bill_df),
-                            ("Total", f"Estimated NHIS Tariff Total: ₦{bill_total:,}"),
+                            ("Total", f"Estimated Estimated Tariff Total: ₦{bill_total:,}"),
                         ],
-                        docx_title="CardioAI — JoiHealth Procedure Bill",
+                        docx_title="CardioAI Nova Procedure Bill",
                         docx_sections=[
                             ("Procedure Bill", bill_df),
-                            ("Total", f"Estimated NHIS Tariff Total: ₦{bill_total:,}"),
+                            ("Total", f"Estimated Estimated Tariff Total: ₦{bill_total:,}"),
                         ],
                         file_stem="procedure_bill",
                     )
@@ -7019,7 +7725,7 @@ elif "Clinical Codes" in page:
     st.divider()
     st.caption(
         "**Sources:** ICD-10 WHO 2019 · ICD-11 WHO 2024 · ICF WHO 2001 · SNOMED CT IHTSDO · "
-        "CPT AMA 2025 · NHIS Nigeria Tariff Schedule 2025 · 2026 ACC/AHA Guidelines"
+        "CPT AMA 2025 · WHO / International Tariff Reference 2025 · 2026 ACC/AHA Guidelines"
     )
 
 elif "About" in page:
@@ -7034,21 +7740,21 @@ elif "About" in page:
         st.markdown("""
         <div style="background:#1F4E79; border-radius:12px; padding:24px; text-align:center;">
             <div style="font-size:60px;">👨‍💻</div>
-            <div style="color:white; font-size:18px; font-weight:bold; margin-top:10px;">Gboh-Igbara D. Charles</div>
+            <div style="color:white; font-size:18px; font-weight:bold; margin-top:10px;">CardioAI Nova Development Team</div>
             <div style="color:#90CAF9; font-size:13px; margin-top:4px;">AI & Machine Learning Developer</div>
-            <div style="color:#90CAF9; font-size:13px;">JoiHealth, Nigeria</div>
+            <div style="color:#90CAF9; font-size:13px;">CardioAI Nova, Nigeria</div>
         </div>
         """, unsafe_allow_html=True)
 
     with dev_col2:
         st.markdown("""
-        **Name:** Gboh-Igbara D. Charles
+        **Name:** CardioAI Nova Development Team
 
         **Role:** AI Developer & Researcher
 
-        **Organisation:** JoiHealth
+        **Organisation:** CardioAI Nova
 
-        **Location:** Nigeria (Lagos / Port Harcourt focus)
+        **Location:** Nigeria (Clinic B / Clinic A focus)
 
         **Project Type:** Dual Capstone Research Project
 
@@ -7056,7 +7762,7 @@ elif "About" in page:
 
         **Live App:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
 
-        **GitHub:** [github.com/gbohigbaradc/cardioai-project](https://github.com/gbohigbaradc/cardioai-project)
+        **GitHub:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
         """)
 
     st.divider()
@@ -7064,9 +7770,7 @@ elif "About" in page:
     # ── Project description ───────────────────────────────
     st.subheader("About This Project")
     st.markdown("""
-    CardioAI is an **Explainable Artificial Intelligence system** developed as part of a dual-capstone
-    research project. It applies machine learning, natural language processing, and explainable AI
-    to two critical problems in Nigerian preventive healthcare:
+    CardioAI Nova is an **Explainable Artificial Intelligence platform** for cardiovascular risk assessment and clinical intelligence. It applies machine learning, natural language processing, and explainable AI to critical problems in preventive cardiovascular healthcare:
 
     1. **Early cardiovascular disease risk prediction** — identifying high-risk patients before
        symptoms become severe, enabling earlier clinical intervention.
@@ -7076,7 +7780,7 @@ elif "About" in page:
        proactively.
 
     The system was designed with clinical usability in mind, focusing on deployment in Nigerian
-    hospital settings in **Lagos** and **Port Harcourt**, where cardiovascular disease is rising
+    hospital settings in **Clinic B** and **Clinic A**, where cardiovascular disease is rising
     due to urbanisation and lifestyle changes.
     """)
 
@@ -7167,4 +7871,4 @@ elif "About" in page:
     decisions made based on this system's outputs.
     """)
 
-    st.caption("© 2025 Gboh-Igbara D. Charles — Nova | cardioai-nova.streamlit.app")
+    st.caption("© 2025 CardioAI Nova Development Team — CardioAI Nova | cardioai-nova.streamlit.app | cardioai-nova.streamlit.app")
