@@ -2168,10 +2168,10 @@ with st.sidebar:
     # ── CardioAI Nova Logo ────────────────────────────────────────
     import os
     logo_paths = [
-        "Heart.png",
-        "app/Heart.png",
-        os.path.join(os.path.dirname(__file__), "Heart.png"),
-        os.path.join(os.path.dirname(__file__), "..", "Heart.png"),
+        "CardioAI_Nova_PM.jpeg",
+        "app/CardioAI_Nova_PM.jpeg",
+        os.path.join(os.path.dirname(__file__), "CardioAI_Nova_PM.jpeg"),
+        os.path.join(os.path.dirname(__file__), "..", "CardioAI_Nova_PM.jpeg"),
     ]
     logo_loaded = False
     for logo_path in logo_paths:
@@ -4619,11 +4619,12 @@ elif "Medical Imaging" in page:
         "ECG Signal (12-lead interpretation), and Retinal Fundus (cardiovascular risk)."
     )
 
-    img_tab1, img_tab2, img_tab3, img_tab4 = st.tabs([
+    img_tab1, img_tab2, img_tab3, img_tab4, img_tab5 = st.tabs([
         "🫁 Chest X-Ray (DenseNet-121)",
         "❤️ Echocardiogram (EchoNet)",
         "📈 ECG Signal Analysis",
         "👁 Retinal Fundus (CV Risk)",
+        "🌬️ Spirometry / PFT",
     ])
 
     # ══════════════════════════════════════════════════════════════════════
@@ -4921,15 +4922,44 @@ elif "Medical Imaging" in page:
             echo_img = PILImage.open(echo_upload)
             st.image(echo_img, caption=f"Uploaded: {echo_upload.name}", use_container_width=True)
 
+            st.warning(
+                "⚠ **Echocardiogram images only.** "
+                "Do not upload ECG printouts, X-rays, lab reports, or spirometry here. "
+                "The AI will validate the image type before analysis."
+            )
+
             if st.button("🔍 Analyse Echo with Gemini Vision AI", type="primary", key="echo_gemini_btn"):
-                with st.spinner("Analysing echocardiogram..."):
+                with st.spinner("Validating image type..."):
                     try:
                         import base64, io
                         buf = io.BytesIO()
                         echo_img.save(buf, format="JPEG", quality=95)
                         img_b64 = base64.b64encode(buf.getvalue()).decode()
-                        echo_prompt = f"""You are a cardiologist reviewing an echocardiogram image.
-Echo view: {echo_view} | Doppler mode: {echo_modality}
+
+                        # Image type check
+                        val_prompt = """Look at this image carefully.
+In ONE sentence, state what type of medical image this is.
+Then on a new line write ONLY one of:
+ECHO_VALID — if this is an echocardiogram / cardiac ultrasound image
+NOT_ECHO — if this is anything else"""
+                        val_resp, _ = vision_api_call(val_prompt, img_b64)
+                        is_echo = val_resp and "ECHO_VALID" in val_resp.upper()
+                        img_desc = val_resp.split("\n")[0] if val_resp else "Unknown"
+
+                        if not is_echo:
+                            st.error(
+                                f"❌ **Wrong image type:** {img_desc}\n\n"
+                                "This tab only accepts **echocardiogram images**. "
+                                "Use the correct tab for your image type:\n"
+                                "- ECG printout → ECG Signal Analysis tab\n"
+                                "- Chest X-ray → Chest X-Ray tab\n"
+                                "- Lab/spirometry report → Clinical NLP → Scan & Auto-Fill"
+                            )
+                            st.session_state["echo_report"] = ""
+                        else:
+                            st.success(f"✅ Echo confirmed: {img_desc}")
+                            with st.spinner("Analysing echocardiogram..."):
+                                echo_prompt = f"""You are a cardiologist reviewing an echocardiogram image.
 Measured dimensions — IVSd: {echo_ivsd}mm | LVEDd: {echo_lvedd}mm | LVESd: {echo_lvesd}mm | PWed: {echo_pwed}mm
 Estimated EF (Teichholz): {ef_teich if ef_teich else 'not calculated'}%
 Machine EF: {echo_ef_manual if echo_ef_manual > 0 else 'not entered'}%
@@ -4947,12 +4977,12 @@ Please provide a structured echo report including:
 10. Limitations of this assessment
 
 Be concise and clinically precise. Flag any urgent findings clearly."""
-                        echo_report, model_used = vision_api_call(echo_prompt, img_b64)
-                        if echo_report:
-                            st.session_state["echo_report"] = echo_report
-                            st.caption(f"Analysis by: {model_used}")
-                        else:
-                            st.error(f"Echo analysis failed: {model_used}")
+                                echo_report, model_used = vision_api_call(echo_prompt, img_b64)
+                                if echo_report:
+                                    st.session_state["echo_report"] = echo_report
+                                    st.caption(f"Analysis by: {model_used}")
+                                else:
+                                    st.error(f"Echo analysis failed: {model_used}")
                     except Exception as e:
                         st.error(f"Echo analysis error: {e}")
 
@@ -5038,14 +5068,47 @@ Be concise and clinically precise. Flag any urgent findings clearly."""
                 ecg_img = PILImage.open(ecg_img_upload)
                 st.image(ecg_img, caption=f"Uploaded: {ecg_img_upload.name}", use_container_width=True)
 
+                st.warning(
+                    "⚠ **Important:** This tab interprets **12-lead ECG printouts only**. "
+                    "Uploading ultrasound, X-ray, spirometry, lab reports, or other images "
+                    "will not produce a valid ECG report. "
+                    "The AI will identify the image type before proceeding."
+                )
+
                 if st.button("🔍 Interpret ECG with Gemini Vision AI", type="primary", key="ecg_gemini_btn"):
-                    with st.spinner("Reading 12-lead ECG..."):
+                    with st.spinner("Reading and validating image type..."):
                         try:
                             import base64, io
                             buf = io.BytesIO()
                             ecg_img.save(buf, format="JPEG", quality=95)
                             img_b64 = base64.b64encode(buf.getvalue()).decode()
-                            ecg_prompt = f"""You are an expert cardiologist interpreting a 12-lead ECG.
+
+                            # Step 1 — image type validation
+                            validation_prompt = """Look at this image carefully.
+In ONE sentence, state exactly what type of medical image or document this is.
+Then on a new line write ONLY one of these labels:
+ECG_VALID — if this is a 12-lead ECG or rhythm strip printout
+NOT_ECG — if this is anything else (ultrasound, X-ray, lab report, spirometry, photo, etc.)"""
+
+                            validation_response, _ = vision_api_call(validation_prompt, img_b64)
+                            is_ecg = validation_response and "ECG_VALID" in validation_response.upper()
+                            image_description = validation_response.split("\n")[0] if validation_response else "Unknown image type"
+
+                            if not is_ecg:
+                                st.error(
+                                    f"❌ **Wrong image type detected.**\n\n"
+                                    f"**AI identified this as:** {image_description}\n\n"
+                                    f"This module only accepts **12-lead ECG printouts or rhythm strips**. "
+                                    f"Please upload the correct image.\n\n"
+                                    f"**If you have an ultrasound:** use the Echocardiogram tab.\n"
+                                    f"**If you have a lab report or spirometry:** use Clinical NLP → Scan & Auto-Fill.\n"
+                                    f"**If you have a chest X-ray:** use the Chest X-Ray tab."
+                                )
+                                st.session_state["ecg_report"] = ""
+                            else:
+                                st.success(f"✅ ECG confirmed: {image_description}")
+                                with st.spinner("Interpreting 12-lead ECG..."):
+                                    ecg_prompt = f"""You are an expert cardiologist interpreting a 12-lead ECG.
 Patient: Age {ecg_patient_age}, {ecg_patient_sex} | Symptoms: {', '.join(ecg_symptoms)}
 History: MI: {ecg_hx_mi} | HTN: {ecg_hx_htn} | Medications: {ecg_medications or 'None'} | Speed: {ecg_speed}
 
@@ -5058,19 +5121,21 @@ Provide a complete structured ECG report:
 6. CLINICAL IMPRESSION — primary diagnosis, differential, urgency: ROUTINE/URGENT/EMERGENCY
 7. RECOMMENDATIONS — immediate actions, further investigations
 Flag STEMI, LBBB, complete heart block, VT prominently."""
-                            ecg_report, model_used = vision_api_call(ecg_prompt, img_b64)
-                            if ecg_report:
-                                st.session_state["ecg_report"] = ecg_report
-                                st.caption(f"Interpreted by: {model_used}")
-                            else:
-                                st.error(f"ECG interpretation failed: {model_used}")
+                                    ecg_report, model_used = vision_api_call(ecg_prompt, img_b64)
+                                    if ecg_report:
+                                        st.session_state["ecg_report"] = ecg_report
+                                        st.session_state["ecg_model_used"] = model_used
+                                    else:
+                                        st.error(f"ECG interpretation failed: {model_used}")
                         except Exception as e:
                             st.error(f"ECG interpretation error: {e}")
 
                 ecg_report = st.session_state.get("ecg_report","")
                 if ecg_report:
                     st.divider()
-                    st.subheader("Gemini Vision — ECG Interpretation Report")
+                    model_used = st.session_state.get("ecg_model_used","AI")
+                    st.subheader("ECG Interpretation Report")
+                    st.caption(f"Interpreted by: {model_used}")
                     st.markdown(ecg_report)
                     _ecg_ctx_df = pd.DataFrame([{
                         "Age": ecg_patient_age, "Sex": ecg_patient_sex,
@@ -5078,17 +5143,18 @@ Flag STEMI, LBBB, complete heart block, VT prominently."""
                         "Hx MI": ecg_hx_mi, "Hx HTN": ecg_hx_htn,
                         "Medications": ecg_medications or "None",
                         "Paper Speed": ecg_speed,
+                        "Interpreted by": st.session_state.get("ecg_model_used","AI"),
                     }])
                     st.divider()
                     export_buttons(
                         "ECG Report",
                         csv_df=_ecg_ctx_df,
                         excel_sheets={"Patient Context": _ecg_ctx_df},
-                        pdf_title="CardioAI — 12-Lead ECG Interpretation Report",
+                        pdf_title="CardioAI Nova — 12-Lead ECG Interpretation Report",
                         pdf_sections=[("Patient Context",_ecg_ctx_df),("ECG Interpretation",ecg_report)],
-                        docx_title="CardioAI — 12-Lead ECG Interpretation Report",
+                        docx_title="CardioAI Nova — 12-Lead ECG Interpretation Report",
                         docx_sections=[("Patient Context",_ecg_ctx_df),("ECG Interpretation",ecg_report)],
-                        file_stem="ecg_report",
+                        file_stem="ecg_interpretation",
                     )
 
         else:
@@ -5220,14 +5286,45 @@ Flag STEMI, LBBB, complete heart block, VT prominently."""
             fundus_img = PILImage.open(fundus_upload)
             st.image(fundus_img, caption=f"Uploaded: {fundus_upload.name}", use_container_width=True)
 
+            st.warning(
+                "⚠ **Retinal fundus photographs only.** "
+                "Do not upload ECG printouts, ultrasounds, X-rays, or lab reports here. "
+                "The AI will validate the image type before analysis."
+            )
+
             if st.button("🔍 Analyse Fundus with Gemini Vision AI", type="primary", key="fundus_gemini_btn"):
-                with st.spinner("Analysing retinal fundus..."):
+                with st.spinner("Validating image type..."):
                     try:
                         import base64, io
                         buf = io.BytesIO()
                         fundus_img.save(buf, format="JPEG", quality=95)
                         img_b64 = base64.b64encode(buf.getvalue()).decode()
-                        fundus_prompt = f"""You are a consultant ophthalmologist and cardiologist interpreting a retinal fundus photograph for cardiovascular risk assessment.
+
+                        # Image type check
+                        val_prompt = """Look at this image carefully.
+In ONE sentence, state what type of medical image this is.
+Then on a new line write ONLY one of:
+FUNDUS_VALID — if this is a retinal fundus photograph / fundoscopy image
+NOT_FUNDUS — if this is anything else"""
+                        val_resp, _ = vision_api_call(val_prompt, img_b64)
+                        is_fundus = val_resp and "FUNDUS_VALID" in val_resp.upper()
+                        img_desc = val_resp.split("\n")[0] if val_resp else "Unknown"
+
+                        if not is_fundus:
+                            st.error(
+                                f"❌ **Wrong image type:** {img_desc}\n\n"
+                                "This tab only accepts **retinal fundus photographs**. "
+                                "Use the correct tab:\n"
+                                "- Echocardiogram → Echocardiogram tab\n"
+                                "- ECG printout → ECG Signal Analysis tab\n"
+                                "- Chest X-ray → Chest X-Ray tab\n"
+                                "- Lab/spirometry → Clinical NLP → Scan & Auto-Fill"
+                            )
+                            st.session_state["fundus_report"] = ""
+                        else:
+                            st.success(f"✅ Fundus image confirmed: {img_desc}")
+                            with st.spinner("Analysing retinal fundus..."):
+                                fundus_prompt = f"""You are a consultant ophthalmologist and cardiologist interpreting a retinal fundus photograph for cardiovascular risk assessment.
 Eye: {fundus_eye} | Field: {fundus_field} | Dilation: {fundus_dilated}
 Clinical: SBP {fundus_sbp}mmHg | HbA1c {fundus_hba1c}% | Diabetes: {fundus_dm} ({fundus_dur} years)
 
@@ -5242,13 +5339,13 @@ Provide a structured fundus report:
 8. OTHER PATHOLOGY — glaucoma, ARMD, vascular occlusions
 9. CV RISK MARKERS — AV ratio, arteriolar narrowing, estimated SBP from retinal features, atherosclerosis signs
 10. CLINICAL IMPRESSION — primary finding, urgency: ROUTINE/URGENT(within 1 week)/EMERGENCY(same day), referrals
-Flag sight-threatening or life-threatening findings prominently."""
-                        fundus_report, model_used = vision_api_call(fundus_prompt, img_b64)
-                        if fundus_report:
-                            st.session_state["fundus_report"] = fundus_report
-                            st.caption(f"Analysed by: {model_used}")
-                        else:
-                            st.error(f"Fundus analysis failed: {model_used}")
+                                Flag sight-threatening or life-threatening findings prominently."""
+                                fundus_report, model_used = vision_api_call(fundus_prompt, img_b64)
+                                if fundus_report:
+                                    st.session_state["fundus_report"] = fundus_report
+                                    st.caption(f"Analysed by: {model_used}")
+                                else:
+                                    st.error(f"Fundus analysis failed: {model_used}")
                     except Exception as e:
                         st.error(f"Fundus analysis error: {e}")
             fundus_report = st.session_state.get("fundus_report","")
@@ -5659,6 +5756,447 @@ Flag sight-threatening or life-threatening findings prominently."""
         - Full anatomical segmentation: Heart, Lungs, Aorta, Spine
         - Cardiothoracic ratio (CTR) with cardiomegaly threshold
         """)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB 5 — SPIROMETRY / PULMONARY FUNCTION TEST
+    # ══════════════════════════════════════════════════════════════════════
+    with img_tab5:
+        st.subheader("🌬️ Spirometry & Pulmonary Function Test (PFT)")
+        st.info(
+            "Two modes: **(1) Upload a scanned spirometry report** — AI reads all values "
+            "including FEV1, FVC, PEF, flow-volume loop and generates a full interpretation. "
+            "**(2) Manual entry** — enter values directly for instant classification "
+            "and auto-fill mapping to Risk Prediction."
+        )
+
+        spiro_mode = st.radio(
+            "Mode", ["📷 Upload Spirometry Report (AI reads)", "✏️ Manual Value Entry"],
+            key="spiro_mode", horizontal=True
+        )
+        st.divider()
+
+        # ── Patient context ───────────────────────────────────────────────
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            sp_age    = st.number_input("Age (years)", 5, 100, 55, key="sp_age")
+            sp_sex    = st.selectbox("Sex", ["Male","Female"], key="sp_sex")
+            sp_ethnic = st.selectbox("Ethnicity",
+                ["Caucasian / White","African / Black","Asian","Hispanic / Latino","Other"],
+                key="sp_ethnic",
+                help="African/Black predicted values ~12% lower than Caucasian reference")
+        with sc2:
+            sp_height = st.number_input("Height (cm)", 100.0, 220.0, 166.0, 0.5, key="sp_height")
+            sp_weight = st.number_input("Weight (kg)", 20.0, 200.0, 69.0, 0.5, key="sp_weight")
+            sp_bmi    = round(sp_weight / ((sp_height/100)**2), 1)
+            st.metric("BMI", f"{sp_bmi} kg/m²")
+        with sc3:
+            sp_smoking = st.selectbox("Smoking status",
+                ["Never smoked","Ex-smoker","Current smoker (<10 pack-years)",
+                 "Current smoker (10-20 pack-years)","Heavy smoker (>20 pack-years)"],
+                key="sp_smoking")
+            sp_symptoms = st.multiselect("Symptoms",
+                ["Dyspnoea on exertion","Chronic cough","Wheeze",
+                 "Sputum production","Chest tightness","None"],
+                default=["None"], key="sp_symptoms")
+            sp_indication = st.selectbox("Indication for PFT",
+                ["Screening / Routine","Dyspnoea workup","Pre-operative",
+                 "Monitor COPD","Monitor Asthma","Cardiac rehab pre-assessment","Other"],
+                key="sp_indication")
+        st.divider()
+
+        if "📷" in spiro_mode:
+            # ── Upload mode ───────────────────────────────────────────────
+            st.markdown("#### Upload Spirometry Report")
+            st.caption(
+                "Supports scanned printouts (upside-down, rotated), thermal prints, "
+                "digital screenshots and PDFs from any spirometer brand."
+            )
+            spiro_upload = st.file_uploader(
+                "Upload spirometry report (JPG, PNG, PDF)",
+                type=["jpg","jpeg","png","pdf"], key="spiro_upload"
+            )
+            enhance_spiro = st.checkbox(
+                "Auto-enhance contrast (recommended for thermal prints)", value=True, key="spiro_enhance"
+            )
+
+            if spiro_upload:
+                from PIL import Image as PILImage, ImageEnhance, ImageOps
+                import base64, io as _io
+
+                if spiro_upload.name.lower().endswith('.pdf'):
+                    try:
+                        import fitz
+                        doc = fitz.open(stream=spiro_upload.read(), filetype="pdf")
+                        pix = doc[0].get_pixmap(dpi=200)
+                        spiro_img = PILImage.frombytes("RGB",[pix.width,pix.height],pix.samples)
+                    except Exception as e:
+                        st.error(f"PDF conversion error: {e}"); spiro_img = None
+                else:
+                    spiro_img = PILImage.open(spiro_upload)
+
+                if spiro_img:
+                    try: spiro_img = ImageOps.exif_transpose(spiro_img)
+                    except Exception: pass
+                    spiro_disp = (ImageEnhance.Contrast(
+                        ImageEnhance.Sharpness(spiro_img.convert("RGB")).enhance(1.8)
+                    ).enhance(1.4)) if enhance_spiro else spiro_img.convert("RGB")
+
+                    st.image(spiro_disp, caption=f"Uploaded: {spiro_upload.name}",
+                             use_container_width=True)
+
+                    if st.button("🔍 Read Spirometry Report with AI", type="primary", key="spiro_ai_btn"):
+                        with st.spinner("AI reading spirometry report..."):
+                            try:
+                                buf = _io.BytesIO()
+                                spiro_disp.save(buf, format="JPEG", quality=95)
+                                img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+                                spiro_prompt = f"""You are a respiratory physician reading a spirometry/PFT report.
+Patient: Age {sp_age}, {sp_sex}, Height {sp_height}cm, Weight {sp_weight}kg, BMI {sp_bmi}
+Ethnicity: {sp_ethnic} | Smoking: {sp_smoking} | Indication: {sp_indication}
+
+The image may be upside-down or rotated — read ALL values regardless.
+Return ONLY valid JSON (no markdown):
+{{
+  "patient_name": null, "patient_id": null, "test_date": null,
+  "spirometer_model": null, "technician": null, "physician": null,
+  "quality_grade": null,
+  "pre_bronchodilator": {{
+    "fev1_litres": null, "fev1_pct_predicted": null,
+    "fvc_litres": null, "fvc_pct_predicted": null,
+    "fev1_fvc_ratio": null, "fev1_fvc_pct_predicted": null,
+    "pef_l_min": null, "pef_pct_predicted": null,
+    "fef2575_litres": null, "fef2575_pct_predicted": null,
+    "fet_seconds": null
+  }},
+  "post_bronchodilator": {{
+    "fev1_litres": null, "fev1_pct_predicted": null,
+    "fvc_litres": null, "fvc_pct_predicted": null,
+    "fev1_fvc_ratio": null,
+    "fev1_change_pct": null, "fvc_change_pct": null,
+    "bronchodilator_response": null
+  }},
+  "lung_volumes": {{
+    "tlc_litres": null, "tlc_pct_predicted": null,
+    "rv_litres": null, "rv_pct_predicted": null, "rv_tlc_ratio": null
+  }},
+  "diffusion": {{
+    "dlco_ml_min_mmhg": null, "dlco_pct_predicted": null,
+    "kco": null, "kco_pct_predicted": null
+  }},
+  "interpretation": {{
+    "pattern": null, "severity": null,
+    "reversibility": null, "full_interpretation": null,
+    "reference_values_source": null
+  }},
+  "gold_stage": null,
+  "raw_text_extracted": null
+}}
+Pattern options: Normal / Obstructive / Restrictive / Mixed / Non-specific
+Severity (obstruction): Mild (FEV1>=70%) / Moderate (50-69%) / Severe (30-49%) / Very Severe (<30%)
+BD response: Positive (>=12% AND >=200mL increase) / Negative / Not tested"""
+
+                                spiro_raw, model_used = vision_api_call(spiro_prompt, img_b64)
+                                st.session_state["spiro_result"] = spiro_raw
+                                st.session_state["spiro_model"]  = model_used
+                            except Exception as e:
+                                st.error(f"Spirometry read error: {e}")
+
+            spiro_raw = st.session_state.get("spiro_result","")
+            if spiro_raw:
+                import json, re as _re
+                try:
+                    spiro_data = json.loads(spiro_raw)
+                except Exception:
+                    m = _re.search(r'\{.*\}', spiro_raw, _re.DOTALL)
+                    try:    spiro_data = json.loads(m.group()) if m else {}
+                    except: spiro_data = {}; st.code(spiro_raw)
+
+                if spiro_data:
+                    st.success(f"✅ Read by: {st.session_state.get('spiro_model','AI')}")
+                    st.divider()
+
+                    # Patient info strip
+                    info_parts = [f"**{k}:** {v}" for k,v in [
+                        ("Patient", spiro_data.get("patient_name")),
+                        ("ID",      spiro_data.get("patient_id")),
+                        ("Date",    spiro_data.get("test_date")),
+                        ("Device",  spiro_data.get("spirometer_model")),
+                        ("Tech",    spiro_data.get("technician")),
+                        ("Dr",      spiro_data.get("physician")),
+                        ("Quality", spiro_data.get("quality_grade")),
+                    ] if v]
+                    if info_parts: st.markdown("  ·  ".join(info_parts))
+
+                    pre    = spiro_data.get("pre_bronchodilator",{}) or {}
+                    post   = spiro_data.get("post_bronchodilator",{}) or {}
+                    interp = spiro_data.get("interpretation",{}) or {}
+                    lv     = spiro_data.get("lung_volumes",{}) or {}
+                    dl     = spiro_data.get("diffusion",{}) or {}
+                    gold   = spiro_data.get("gold_stage")
+                    pattern  = interp.get("pattern","")
+                    severity = interp.get("severity","")
+                    full_int = interp.get("full_interpretation","")
+
+                    def show_metric(col, label, val, unit="", ref=None):
+                        if val is not None:
+                            col.metric(label, f"{val} {unit}".strip(),
+                                       delta=f"Pred: {ref}%" if ref else None)
+                        else: col.metric(label, "—")
+
+                    st.subheader("Pre-Bronchodilator")
+                    c1,c2,c3,c4,c5,c6 = st.columns(6)
+                    show_metric(c1,"FEV1 (L)",   pre.get("fev1_litres"),"L", pre.get("fev1_pct_predicted"))
+                    show_metric(c2,"FVC (L)",    pre.get("fvc_litres"), "L", pre.get("fvc_pct_predicted"))
+                    show_metric(c3,"FEV1/FVC",   pre.get("fev1_fvc_ratio"),"",pre.get("fev1_fvc_pct_predicted"))
+                    show_metric(c4,"PEF (L/min)",pre.get("pef_l_min"),  "",  pre.get("pef_pct_predicted"))
+                    show_metric(c5,"FEF25-75%",  pre.get("fef2575_litres"),"L/s",pre.get("fef2575_pct_predicted"))
+                    show_metric(c6,"FET (s)",    pre.get("fet_seconds"))
+
+                    if any(v for v in post.values() if v):
+                        st.subheader("Post-Bronchodilator")
+                        p1,p2,p3,p4 = st.columns(4)
+                        show_metric(p1,"FEV1 (L)",  post.get("fev1_litres"),"L",post.get("fev1_pct_predicted"))
+                        show_metric(p2,"FVC (L)",   post.get("fvc_litres"), "L",post.get("fvc_pct_predicted"))
+                        show_metric(p3,"FEV1 Δ%",   post.get("fev1_change_pct"),"%")
+                        show_metric(p4,"BD Response",post.get("bronchodilator_response"))
+
+                    if any(v for v in lv.values() if v):
+                        st.subheader("Lung Volumes")
+                        lv1,lv2,lv3 = st.columns(3)
+                        show_metric(lv1,"TLC (L)",lv.get("tlc_litres"),"L",lv.get("tlc_pct_predicted"))
+                        show_metric(lv2,"RV (L)", lv.get("rv_litres"), "L",lv.get("rv_pct_predicted"))
+                        show_metric(lv3,"RV/TLC", lv.get("rv_tlc_ratio"))
+
+                    if any(v for v in dl.values() if v):
+                        st.subheader("Diffusion (DLCO)")
+                        d1,d2 = st.columns(2)
+                        show_metric(d1,"DLCO",dl.get("dlco_ml_min_mmhg"),"mL/min/mmHg",dl.get("dlco_pct_predicted"))
+                        show_metric(d2,"KCO", dl.get("kco"),"",dl.get("kco_pct_predicted"))
+
+                    st.subheader("Clinical Interpretation")
+                    c_p,c_s,c_r,c_g = st.columns(4)
+                    c_p.metric("Pattern",  pattern  or "—")
+                    c_s.metric("Severity", severity or "—")
+                    c_r.metric("Reversibility", interp.get("reversibility","—") or "—")
+                    c_g.metric("GOLD Stage", gold or "—")
+
+                    if pattern:
+                        if "Normal" in pattern:     st.success(f"✅ {pattern}")
+                        elif "Obstructive" in pattern and "Severe" in (severity or ""):
+                            st.error(f"⚠ {pattern} — {severity}")
+                        elif pattern != "—":        st.warning(f"⚠ {pattern} — {severity or 'ungraded'}")
+                    if full_int: st.info(full_int)
+
+                    # CV impact
+                    if any(x in (pattern or "") for x in ["Obstructive","Restrictive","Mixed"]):
+                        st.warning(
+                            "⚠ Pulmonary impairment detected. COPD and restrictive lung disease "
+                            "significantly increase cardiovascular risk. Ensure this patient's "
+                            "Risk Prediction inputs include the respiratory pattern above."
+                        )
+
+                    # Auto-fill table
+                    st.subheader("📝 Auto-Fill for Risk Prediction Module")
+                    rows = [
+                        ("Demographics → Age",            sp_age,    "years"),
+                        ("Demographics → Sex",            sp_sex,    ""),
+                        ("Demographics → Height",         sp_height, "cm"),
+                        ("Demographics → Weight",         sp_weight, "kg"),
+                        ("Demographics → BMI",            sp_bmi,    "kg/m²"),
+                        ("Demographics → Smoking Status", sp_smoking,""),
+                    ]
+                    if pattern:  rows.append(("Demographics → Respiratory Pattern", pattern, ""))
+                    if severity: rows.append(("Demographics → PFT Severity", severity, ""))
+                    if gold:     rows.append(("Demographics → GOLD Stage", gold, ""))
+                    if pre.get("fev1_pct_predicted"):
+                        rows.append(("FBS tab → (document FEV1% for clinical notes)", pre["fev1_pct_predicted"], "%"))
+                    if spiro_data.get("patient_name"):
+                        rows.append(("Demographics → Patient Name", spiro_data["patient_name"], ""))
+                    if spiro_data.get("patient_id"):
+                        rows.append(("Demographics → Patient ID", spiro_data["patient_id"], ""))
+                    if any(x in (pattern or "") for x in ["Obstructive","Mixed"]):
+                        rows.append(("Demographics → Dyspnoea on Exertion", "Yes — report-confirmed", ""))
+
+                    af_df = pd.DataFrame(rows, columns=["Risk Prediction Field","Value","Unit"])
+                    st.dataframe(af_df, use_container_width=True, hide_index=True)
+
+                    # Export
+                    flat = {"Age":sp_age,"Sex":sp_sex,"Height (cm)":sp_height,
+                            "Weight (kg)":sp_weight,"BMI":sp_bmi,"Smoking":sp_smoking}
+                    for k,v in pre.items():
+                        if v is not None: flat[f"Pre-BD {k}"] = v
+                    for k,v in post.items():
+                        if v is not None: flat[f"Post-BD {k}"] = v
+                    flat.update({"Pattern":pattern,"Severity":severity,"GOLD Stage":gold or "—"})
+                    exp_df = pd.DataFrame([flat])
+
+                    st.divider()
+                    export_buttons(
+                        "Spirometry Report",
+                        csv_df=exp_df,
+                        excel_sheets={"Spirometry Results":exp_df,"Auto-Fill":af_df},
+                        pdf_title="CardioAI Nova — Spirometry / PFT Report",
+                        pdf_sections=[
+                            ("Spirometry Results", exp_df),
+                            ("Clinical Interpretation", full_int or "—"),
+                            ("Auto-Fill for Risk Prediction", af_df),
+                        ],
+                        docx_title="CardioAI Nova — Spirometry / PFT Report",
+                        docx_sections=[
+                            ("Spirometry Results", exp_df),
+                            ("Clinical Interpretation", full_int or "—"),
+                            ("Auto-Fill for Risk Prediction", af_df),
+                        ],
+                        file_stem="spirometry_report",
+                    )
+
+        else:
+            # ── Manual entry mode ─────────────────────────────────────────
+            st.markdown("#### Manual Spirometry Value Entry")
+            me1, me2 = st.columns(2)
+            with me1:
+                st.markdown("**Pre-Bronchodilator**")
+                m_fev1     = st.number_input("FEV1 (L)", 0.0, 8.0, 0.0, 0.01, key="m_fev1")
+                m_fev1_pct = st.number_input("FEV1 % predicted", 0.0, 200.0, 0.0, 0.1, key="m_fev1pct")
+                m_fvc      = st.number_input("FVC (L)", 0.0, 10.0, 0.0, 0.01, key="m_fvc")
+                m_fvc_pct  = st.number_input("FVC % predicted", 0.0, 200.0, 0.0, 0.1, key="m_fvcpct")
+                m_ratio    = st.number_input("FEV1/FVC ratio", 0.0, 1.0, 0.0, 0.01, key="m_ratio",
+                                             help="Normal ≥0.70 | <0.70 = obstruction")
+                m_pef      = st.number_input("PEF (L/min)", 0.0, 900.0, 0.0, 1.0, key="m_pef")
+                m_pef_pct  = st.number_input("PEF % predicted", 0.0, 200.0, 0.0, 0.1, key="m_pefpct")
+                m_fef2575  = st.number_input("FEF25-75% (L/s)", 0.0, 10.0, 0.0, 0.01, key="m_fef2575")
+            with me2:
+                st.markdown("**Post-Bronchodilator (if done)**")
+                m_fev1_post = st.number_input("FEV1 post-BD (L)", 0.0, 8.0, 0.0, 0.01, key="m_fev1post")
+                m_fvc_post  = st.number_input("FVC post-BD (L)",  0.0, 10.0, 0.0, 0.01, key="m_fvcpost")
+                st.markdown("**Lung Volumes (if done)**")
+                m_tlc      = st.number_input("TLC (L)", 0.0, 15.0, 0.0, 0.01, key="m_tlc",
+                                             help="Needed to confirm restriction")
+                m_tlc_pct  = st.number_input("TLC % predicted", 0.0, 200.0, 0.0, 0.1, key="m_tlcpct")
+                m_rv       = st.number_input("RV (L)", 0.0, 8.0, 0.0, 0.01, key="m_rv")
+                st.markdown("**Diffusion**")
+                m_dlco     = st.number_input("DLCO (mL/min/mmHg)", 0.0, 50.0, 0.0, 0.1, key="m_dlco")
+                m_dlco_pct = st.number_input("DLCO % predicted", 0.0, 200.0, 0.0, 0.1, key="m_dlcopct")
+
+            if st.button("🔬 Classify & Interpret", type="primary", key="spiro_manual_btn"):
+                fev1_fvc = m_ratio if m_ratio > 0 else (m_fev1/m_fvc if m_fvc > 0 else None)
+                obstruction = fev1_fvc is not None and fev1_fvc < 0.70
+                restriction = (m_tlc_pct > 0 and m_tlc_pct < 80) or (
+                    not obstruction and m_fvc_pct > 0 and m_fvc_pct < 80)
+
+                pattern = ("Mixed (Obstructive + Restrictive)" if obstruction and m_tlc_pct>0 and m_tlc_pct<80
+                           else "Obstructive" if obstruction
+                           else "Restrictive" if restriction
+                           else "Normal" if (m_fev1_pct>=80 and m_fvc_pct>=80 and m_fvc_pct>0)
+                           else "Indeterminate / Incomplete data")
+
+                severity = "—"
+                if obstruction and m_fev1_pct > 0:
+                    severity = ("Mild (GOLD 1)" if m_fev1_pct>=80
+                                else "Moderate (GOLD 2)" if m_fev1_pct>=50
+                                else "Severe (GOLD 3)" if m_fev1_pct>=30
+                                else "Very Severe (GOLD 4)")
+                elif restriction and m_tlc_pct > 0:
+                    severity = ("Mild" if m_tlc_pct>=70 else "Moderate" if m_tlc_pct>=60 else "Severe")
+
+                bd_resp = "Not tested"
+                if m_fev1>0 and m_fev1_post>0:
+                    delta_abs = m_fev1_post - m_fev1
+                    delta_pct = (delta_abs / m_fev1) * 100
+                    bd_resp = ("Positive (significant reversibility)"
+                               if delta_pct>=12 and delta_abs>=0.2 else "Negative")
+
+                st.divider()
+                st.subheader("Classification")
+                cc1,cc2,cc3,cc4 = st.columns(4)
+                cc1.metric("Pattern",  pattern)
+                cc2.metric("Severity", severity)
+                cc3.metric("FEV1/FVC", f"{fev1_fvc:.2f}" if fev1_fvc else "—")
+                cc4.metric("BD Response", bd_resp)
+
+                if "Normal" in pattern:        st.success("✅ Normal spirometry")
+                elif "Very Severe" in severity or "Severe" in severity:
+                    st.error(f"⚠ {pattern} — {severity}")
+                elif pattern not in ["Indeterminate / Incomplete data",""]:
+                    st.warning(f"⚠ {pattern} — {severity}")
+                else: st.info(f"ℹ {pattern}")
+
+                # Guidance
+                guidance = []
+                if "Obstructive" in pattern:
+                    guidance += [
+                        "• Consider COPD or Asthma — correlate with clinical history",
+                        "• Bronchodilator reversibility test if not done",
+                        "• Cardiovascular risk significantly elevated in COPD — screen proactively",
+                    ]
+                    if "Severe" in severity:
+                        guidance.append("• Refer to respiratory physician — CT chest, DLCO, 6MWT")
+                if "Restrictive" in pattern or restriction:
+                    guidance += [
+                        "• Full lung volumes (TLC) needed to confirm restriction",
+                        "• Consider: pulmonary fibrosis, obesity, cardiac, pleural, neuromuscular causes",
+                        "• DLCO to differentiate parenchymal vs extra-pulmonary",
+                    ]
+                if bd_resp and "Positive" in bd_resp:
+                    guidance.append("• Significant BD reversibility — Asthma component likely, consider ICS trial")
+
+                if guidance:
+                    st.subheader("Clinical Guidance")
+                    for g in guidance: st.markdown(g)
+
+                # Auto-fill
+                st.subheader("📝 Auto-Fill for Risk Prediction Module")
+                rows = [("Demographics → Age",sp_age,"years"),("Demographics → Sex",sp_sex,""),
+                        ("Demographics → Height",sp_height,"cm"),("Demographics → Weight",sp_weight,"kg"),
+                        ("Demographics → BMI",sp_bmi,"kg/m²"),("Demographics → Smoking",sp_smoking,""),
+                        ("Demographics → Respiratory Pattern",pattern,""),
+                        ("Demographics → PFT Severity",severity,"")]
+                if m_fev1_pct>0:  rows.append(("Demographics → FEV1 % Pred",m_fev1_pct,"%"))
+                if m_fvc_pct>0:   rows.append(("Demographics → FVC % Pred",m_fvc_pct,"%"))
+                if fev1_fvc:      rows.append(("Demographics → FEV1/FVC",round(fev1_fvc,3),""))
+                if m_dlco_pct>0:  rows.append(("Chemistry → DLCO % Pred",m_dlco_pct,"%"))
+                if m_pef_pct>0:   rows.append(("Demographics → PEF % Pred",m_pef_pct,"%"))
+
+                af_df = pd.DataFrame(rows, columns=["Risk Prediction Field","Value","Unit"])
+                st.dataframe(af_df, use_container_width=True, hide_index=True)
+
+                exp_df = pd.DataFrame([{
+                    "Age":sp_age,"Sex":sp_sex,"Height (cm)":sp_height,"Weight (kg)":sp_weight,
+                    "BMI":sp_bmi,"Smoking":sp_smoking,
+                    "FEV1 (L)":m_fev1,"FEV1 % pred":m_fev1_pct,
+                    "FVC (L)":m_fvc,"FVC % pred":m_fvc_pct,
+                    "FEV1/FVC":round(fev1_fvc,3) if fev1_fvc else "—",
+                    "PEF (L/min)":m_pef,"PEF % pred":m_pef_pct,"FEF25-75 (L/s)":m_fef2575,
+                    "TLC (L)":m_tlc,"TLC % pred":m_tlc_pct,"DLCO":m_dlco,"DLCO % pred":m_dlco_pct,
+                    "Pattern":pattern,"Severity":severity,"BD Response":bd_resp,
+                }])
+                st.divider()
+                export_buttons(
+                    "Spirometry Manual",
+                    csv_df=exp_df,
+                    excel_sheets={"Spirometry Results":exp_df,"Auto-Fill":af_df},
+                    pdf_title="CardioAI Nova — Spirometry Report (Manual Entry)",
+                    pdf_sections=[("Spirometry Results",exp_df),
+                                  ("Clinical Guidance","\n".join(guidance) if guidance else "None"),
+                                  ("Auto-Fill for Risk Prediction",af_df)],
+                    docx_title="CardioAI Nova — Spirometry Report (Manual Entry)",
+                    docx_sections=[("Spirometry Results",exp_df),
+                                   ("Clinical Guidance","\n".join(guidance) if guidance else "None"),
+                                   ("Auto-Fill for Risk Prediction",af_df)],
+                    file_stem="spirometry_manual",
+                )
+
+        st.divider()
+        st.caption(
+            "**Reference:** GLI 2012 (Quanjer) predicted values. "
+            "Obstruction: FEV1/FVC < LLN (or <0.70 fixed). "
+            "Restriction: TLC < LLN (or <80% predicted). "
+            "GOLD severity: post-BD FEV1 % predicted. "
+            "BD response: ≥12% + ≥200mL FEV1 or FVC increase. "
+            "All results must be interpreted by a qualified clinician."
+        )
+
 
 # ══════════════════════════════════════════════════════════════
 # PAGE 4 — ABOUT
@@ -7748,7 +8286,7 @@ elif "About" in page:
 
     with dev_col2:
         st.markdown("""
-        **Name:** Gboh-Igbara D. Charles (Team Lead, CardioAI Nova Development Team)
+        **Name:** CardioAI Nova Development Team
 
         **Role:** AI Developer & Researcher
 
@@ -7762,7 +8300,7 @@ elif "About" in page:
 
         **Live App:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
 
-        **GitHub:** [cardioai-nova.streamlit.app](https://gbohigbaradc.github.io)
+        **GitHub:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
         """)
 
     st.divider()
