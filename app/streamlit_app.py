@@ -78,7 +78,7 @@ def _df_to_docx_bytes(title: str, sections: list) -> bytes:
 
     sub = doc.add_paragraph(
         f"Generated: {pd.Timestamp.now().strftime('%d %B %Y, %H:%M')}  |  "
-        f"CardioAI Nova Polyclinics"
+        f"CardioAI Nova"
     )
     if sub.runs:
         sub.runs[0].font.size = Pt(9)
@@ -159,7 +159,7 @@ def _df_to_pdf_bytes(title: str, sections: list) -> bytes:
         # Plain-text fallback — still downloadable
         lines = [title, "=" * 60,
                  f"Generated: {pd.Timestamp.now().strftime('%d %B %Y %H:%M')}",
-                 "CardioAI Nova Polyclinics",
+                 "CardioAI Nova",
                  "(Install reportlab>=4.0.0 in requirements.txt for true PDF output)", ""]
         for heading, content in sections:
             if heading:
@@ -199,7 +199,7 @@ def _df_to_pdf_bytes(title: str, sections: list) -> bytes:
     story.append(Paragraph(title, title_style))
     story.append(Paragraph(
         f"Generated: {pd.Timestamp.now().strftime('%d %B %Y, %H:%M')} &nbsp;|&nbsp; "
-        f"CardioAI Nova Polyclinics",
+        f"CardioAI Nova",
         styles["Normal"]
     ))
     story.append(HRFlowable(width="100%", thickness=1.5,
@@ -5858,7 +5858,8 @@ Ethnicity: {sp_ethnic} | Smoking: {sp_smoking} | Indication: {sp_indication}
 The image may be upside-down or rotated — read ALL values regardless.
 Return ONLY valid JSON (no markdown):
 {{
-  "patient_name": null, "patient_id": null, "test_date": null,
+  "patient_name": null, "patient_id": null, "patient_age": null, "patient_sex": null,
+  "test_date": null,
   "spirometer_model": null, "technician": null, "physician": null,
   "quality_grade": null,
   "pre_bronchodilator": {{
@@ -5894,7 +5895,17 @@ Return ONLY valid JSON (no markdown):
 }}
 Pattern options: Normal / Obstructive / Restrictive / Mixed / Non-specific
 Severity (obstruction): Mild (FEV1>=70%) / Moderate (50-69%) / Severe (30-49%) / Very Severe (<30%)
-BD response: Positive (>=12% AND >=200mL increase) / Negative / Not tested"""
+BD response: Positive (>=12% AND >=200mL increase) / Negative / Not tested
+
+CRITICAL EXTRACTION RULES:
+1. Spirometry reports have multiple columns: Base (actual measured), Min Pred, Max Pred, % Pred
+2. For fev1_litres, fvc_litres etc → use the ACTUAL measured value (Base column), NOT predicted
+3. For fev1_pct_predicted → use the % Pred column value (should be between 0-200%)
+4. FEV1/FVC ratio → must be between 0.0 and 1.0 (e.g. 0.84 not 84). If printed as percentage (84.3%), divide by 100
+5. PEF % predicted → must be between 0-200%. Do not confuse with raw PEF value in L/min
+6. patient_age → extract the numeric age from the header (e.g. "Age: 78" or "78yr Male")
+7. patient_sex → extract Male or Female from the header
+8. If a value looks wrong (e.g. FEV1/FVC > 1.0, % predicted > 200), set it to null rather than guess"""
 
                                 spiro_raw, model_used = vision_api_call(spiro_prompt, img_b64)
                                 st.session_state["spiro_result"] = spiro_raw
@@ -5937,6 +5948,27 @@ BD response: Positive (>=12% AND >=200mL increase) / Negative / Not tested"""
                     pattern  = interp.get("pattern","")
                     severity = interp.get("severity","")
                     full_int = interp.get("full_interpretation","")
+
+                    # ── Sanity checks on extracted values ────────────────
+                    # FEV1/FVC % predicted > 100 is almost always a misread
+                    # (the machine prints reference column values nearby)
+                    if pre.get("fev1_fvc_pct_predicted") and float(pre["fev1_fvc_pct_predicted"]) > 100:
+                        pre["fev1_fvc_pct_predicted"] = None  # suppress clearly wrong value
+                    # PEF % predicted < 5 or > 200 is clearly wrong
+                    if pre.get("pef_pct_predicted"):
+                        pef_pct = float(pre["pef_pct_predicted"])
+                        if pef_pct < 5 or pef_pct > 200:
+                            pre["pef_pct_predicted"] = None
+                    # FEV1/FVC ratio > 1.2 is impossible — misread of % column
+                    if pre.get("fev1_fvc_ratio"):
+                        ratio = float(pre["fev1_fvc_ratio"])
+                        if ratio > 1.2:  # likely read as percentage e.g. 84.3 instead of 0.843
+                            pre["fev1_fvc_ratio"] = round(ratio / 100, 3)
+                    # Same for post-BD
+                    if post.get("fev1_fvc_ratio"):
+                        ratio = float(post["fev1_fvc_ratio"])
+                        if ratio > 1.2:
+                            post["fev1_fvc_ratio"] = round(ratio / 100, 3)
 
                     def show_metric(col, label, val, unit="", ref=None):
                         if val is not None:
@@ -5998,37 +6030,110 @@ BD response: Positive (>=12% AND >=200mL increase) / Negative / Not tested"""
 
                     # Auto-fill table
                     st.subheader("📝 Auto-Fill for Risk Prediction Module")
+
+                    # Use age from the extracted report if available, else widget value
+                    _pt_age_from_report = None
+                    raw_txt = spiro_data.get("raw_text_extracted","") or ""
+                    # Try to get age from patient_info if AI extracted it
+                    if spiro_data.get("patient_age"):
+                        _pt_age_from_report = spiro_data["patient_age"]
+                    # Otherwise try to parse from raw text (e.g. "Age: 78" or "78yr")
+                    if not _pt_age_from_report and raw_txt:
+                        import re as _re2
+                        age_match = _re2.search(r'(?:age[:\s]+|(\d{2,3})\s*yr)', raw_txt, _re2.IGNORECASE)
+                        if age_match:
+                            _pt_age_from_report = age_match.group(1) or age_match.group(0).replace("Age:","").replace("Age","").strip()
+                    # Also check patient_name field for age hint
+                    _effective_age = _pt_age_from_report if _pt_age_from_report else sp_age
+
+                    # Sex from report if available
+                    _pt_sex_from_report = spiro_data.get("patient_sex") or sp_sex
+
                     rows = [
-                        ("Demographics → Age",            sp_age,    "years"),
-                        ("Demographics → Sex",            sp_sex,    ""),
-                        ("Demographics → Height",         sp_height, "cm"),
-                        ("Demographics → Weight",         sp_weight, "kg"),
-                        ("Demographics → BMI",            sp_bmi,    "kg/m²"),
-                        ("Demographics → Smoking Status", sp_smoking,""),
+                        ("Demographics → Patient Name",  spiro_data.get("patient_name","—"),  ""),
+                        ("Demographics → Patient ID",    spiro_data.get("patient_id","—"),    ""),
+                        ("Demographics → Age",           _effective_age,                       "years"),
+                        ("Demographics → Sex",           _pt_sex_from_report,                  ""),
+                        ("Demographics → Height",        sp_height,                            "cm"),
+                        ("Demographics → Weight",        sp_weight,                            "kg"),
+                        ("Demographics → BMI",           sp_bmi,                               "kg/m²"),
+                        ("Demographics → Smoking Status",sp_smoking,                           ""),
                     ]
-                    if pattern:  rows.append(("Demographics → Respiratory Pattern", pattern, ""))
-                    if severity: rows.append(("Demographics → PFT Severity", severity, ""))
-                    if gold:     rows.append(("Demographics → GOLD Stage", gold, ""))
+                    if pattern:  rows.append(("Demographics → Respiratory Pattern",  pattern,  ""))
+                    if severity: rows.append(("Demographics → PFT Severity",          severity, ""))
+                    if pre.get("fev1_litres"):
+                        rows.append(("Spirometry → FEV1 (L)",         pre["fev1_litres"],          "L"))
                     if pre.get("fev1_pct_predicted"):
-                        rows.append(("FBS tab → (document FEV1% for clinical notes)", pre["fev1_pct_predicted"], "%"))
-                    if spiro_data.get("patient_name"):
-                        rows.append(("Demographics → Patient Name", spiro_data["patient_name"], ""))
-                    if spiro_data.get("patient_id"):
-                        rows.append(("Demographics → Patient ID", spiro_data["patient_id"], ""))
+                        rows.append(("Spirometry → FEV1 % Predicted", pre["fev1_pct_predicted"],    "%"))
+                    if pre.get("fvc_litres"):
+                        rows.append(("Spirometry → FVC (L)",          pre["fvc_litres"],            "L"))
+                    if pre.get("fvc_pct_predicted"):
+                        rows.append(("Spirometry → FVC % Predicted",  pre["fvc_pct_predicted"],     "%"))
+                    if pre.get("fev1_fvc_ratio"):
+                        rows.append(("Spirometry → FEV1/FVC Ratio",   pre["fev1_fvc_ratio"],        ""))
+                    if pre.get("pef_l_min"):
+                        rows.append(("Spirometry → PEF (L/min)",      pre["pef_l_min"],             "L/min"))
+                    if pre.get("pef_pct_predicted"):
+                        rows.append(("Spirometry → PEF % Predicted",  pre["pef_pct_predicted"],     "%"))
                     if any(x in (pattern or "") for x in ["Obstructive","Mixed"]):
                         rows.append(("Demographics → Dyspnoea on Exertion", "Yes — report-confirmed", ""))
+                    if gold:
+                        rows.append(("Spirometry → GOLD Stage (COPD)", gold, ""))
+                    elif "Restrictive" in (pattern or ""):
+                        rows.append(("Note", "GOLD Stage not applicable — Restrictive pattern (GOLD applies to obstruction only)", ""))
 
                     af_df = pd.DataFrame(rows, columns=["Risk Prediction Field","Value","Unit"])
                     st.dataframe(af_df, use_container_width=True, hide_index=True)
 
-                    # Export
-                    flat = {"Age":sp_age,"Sex":sp_sex,"Height (cm)":sp_height,
-                            "Weight (kg)":sp_weight,"BMI":sp_bmi,"Smoking":sp_smoking}
-                    for k,v in pre.items():
-                        if v is not None: flat[f"Pre-BD {k}"] = v
-                    for k,v in post.items():
-                        if v is not None: flat[f"Post-BD {k}"] = v
-                    flat.update({"Pattern":pattern,"Severity":severity,"GOLD Stage":gold or "—"})
+                    # ── Clean export dataframe with proper column names ────────
+                    # Map raw JSON keys to clean clinical labels
+                    _col_map = {
+                        "fev1_litres":             "FEV1 (L)",
+                        "fev1_pct_predicted":      "FEV1 % Predicted",
+                        "fvc_litres":              "FVC (L)",
+                        "fvc_pct_predicted":       "FVC % Predicted",
+                        "fev1_fvc_ratio":          "FEV1/FVC Ratio",
+                        "fev1_fvc_pct_predicted":  "FEV1/FVC % Predicted",
+                        "pef_l_min":               "PEF (L/min)",
+                        "pef_pct_predicted":       "PEF % Predicted",
+                        "fef2575_litres":          "FEF25-75% (L/s)",
+                        "fef2575_pct_predicted":   "FEF25-75% Predicted",
+                        "fet_seconds":             "FET (s)",
+                        "fev1_change_pct":         "FEV1 Change %",
+                        "fvc_change_pct":          "FVC Change %",
+                        "bronchodilator_response": "BD Response",
+                    }
+
+                    flat = {
+                        "Patient Name":   spiro_data.get("patient_name","—"),
+                        "Patient ID":     spiro_data.get("patient_id","—"),
+                        "Test Date":      spiro_data.get("test_date","—"),
+                        "Device":         spiro_data.get("spirometer_model","—"),
+                        "Technician":     spiro_data.get("technician","—"),
+                        "Physician":      spiro_data.get("physician","—"),
+                        "Quality Grade":  spiro_data.get("quality_grade","—"),
+                        "Age":            _effective_age,
+                        "Sex":            _pt_sex_from_report,
+                        "Height (cm)":    sp_height,
+                        "Weight (kg)":    sp_weight,
+                        "BMI":            sp_bmi,
+                        "Smoking":        sp_smoking,
+                        "Ethnicity":      sp_ethnic,
+                        "Indication":     sp_indication,
+                    }
+                    for k, v in pre.items():
+                        if v is not None:
+                            flat[f"Pre-BD {_col_map.get(k, k.replace('_',' ').title())}"] = v
+                    for k, v in post.items():
+                        if v is not None:
+                            flat[f"Post-BD {_col_map.get(k, k.replace('_',' ').title())}"] = v
+                    flat.update({
+                        "Pattern":    pattern,
+                        "Severity":   severity,
+                        "GOLD Stage": gold if gold else ("N/A — Restrictive" if "Restrictive" in (pattern or "") else "—"),
+                        "Full Interpretation": full_int or "—",
+                        "Reference Source": interp.get("reference_values_source","—"),
+                    })
                     exp_df = pd.DataFrame([flat])
 
                     st.divider()
@@ -8286,11 +8391,11 @@ elif "About" in page:
 
     with dev_col2:
         st.markdown("""
-        **Name:** CardioAI Nova Development Team
+        **Name:** Gboh-Igbara D. Charles (Team Lead, CardioAI Nova)
 
         **Role:** AI Developer & Researcher
 
-        **Organisation:** CardioAI Nova
+        **Organisation:** CardioAI Nova Development Team
 
         **Location:** Nigeria (Clinic B / Clinic A focus)
 
@@ -8300,7 +8405,7 @@ elif "About" in page:
 
         **Live App:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
 
-        **GitHub:** [cardioai-nova.streamlit.app](https://cardioai-nova.streamlit.app)
+        **GitHub:** [cardioai-nova.streamlit.app](https://gbohigbaradc.github.io)
         """)
 
     st.divider()
