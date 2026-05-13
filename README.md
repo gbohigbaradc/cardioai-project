@@ -1,3 +1,45 @@
+---
+title: CardioAI Nova
+emoji: 🫀
+colorFrom: blue
+colorTo: indigo
+sdk: streamlit
+sdk_version: 1.32.0
+app_file: streamlit_app.py
+pinned: false
+---
+
+---
+title: CardioAI Nova
+emoji: 🫀
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_file: app/streamlit_app.py
+pinned: false
+---
+
+# CardioAI — Nova
+
+**Explainable AI Platform for Cardiovascular Risk Assessment**
+
+CardioAI Nova is a clinical decision support system built for preventive cardiovascular healthcare in Nigerian hospital settings. It combines machine learning, explainable AI (SHAP), NLP, OCR, and Monte Carlo simulation into a single Streamlit interface.
+
+## Features
+- Cardiovascular risk prediction (XGBoost / Random Forest, AUC-ROC 0.93)
+- Patient retention risk forecasting
+- Explainable AI — SHAP feature attribution per patient
+- Clinical NLP + Tesseract OCR for document extraction
+- CNN medical imaging (TorchXRayVision)
+- CPT/ICD-10/ICD-11 clinical code reference
+- PDF, Excel, Word and CSV report export
+- LLM interpretation layer via Anthropic API
+
+## Disclaimer
+This tool is for **research and clinical decision support only**. All outputs must be reviewed by a licensed clinician before any clinical action is taken.
+
+---
+© 2025 CardioAI Nova Development Team — Joi Health Polyclinics, Nigeria
 # CardioAI — Nova
 
 > **AI-Powered Cardiovascular Risk, Clinical Intelligence & Hospital Operations System**
