@@ -23,6 +23,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ══════════════════════════════════════════════════════════
 
 import io
+import gc  # garbage collection for memory management
 import base64
 
 def _df_to_csv_bytes(df: pd.DataFrame) -> bytes:
@@ -1927,6 +1928,28 @@ def load_explainer(_model):
         return None
     return shap.TreeExplainer(_model)
 
+@st.cache_resource(show_spinner=False)
+def load_densenet():
+    """Load DenseNet-121 once and cache — prevents reloading on every rerender."""
+    try:
+        import torchxrayvision as xrv
+        model = xrv.models.DenseNet(weights="densenet121-res224-all")
+        model.eval()
+        return model
+    except Exception:
+        return None
+
+@st.cache_resource(show_spinner=False)
+def load_pspnet():
+    """Load PSPNet segmentation model once and cache."""
+    try:
+        import torchxrayvision as xrv
+        model = xrv.baseline_models.chestx_det.PSPNet()
+        model.eval()
+        return model
+    except Exception:
+        return None
+
 # ══════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════
@@ -2383,6 +2406,23 @@ with st.sidebar:
         st.warning("Vision AI: Add GOOGLE_API_KEY to secrets")
     if TESSERACT_OK: st.success(f"OCR Fallback: {TESSERACT_MSG}")
     else:            st.info("OCR Fallback: Tesseract not found")
+
+    # ── Memory / Performance Settings ────────────────────────
+    st.divider()
+    st.markdown("**⚙ Performance Settings**")
+    cnn_enabled = st.toggle(
+        "Enable CNN Imaging (X-Ray AI)",
+        value=True,
+        help=(
+            "DenseNet-121 + PSPNet use ~450MB RAM. "
+            "Disable if app hits memory limits. "
+            "Echo, ECG, Spirometry, and Fundus tabs still work via Gemini Vision."
+        ),
+        key="cnn_enabled"
+    )
+    if not cnn_enabled:
+        st.caption("🔵 CNN disabled — Gemini Vision still available for all other imaging tabs.")
+
     st.caption("⚠ Decision support only. Not a diagnostic tool.")
 
 # ══════════════════════════════════════════════════════════
@@ -5018,12 +5058,20 @@ elif "Medical Imaging" in page:
             "or other modalities will produce meaningless scores. Use the correct tab for each modality."
         )
 
+        cnn_enabled_flag = st.session_state.get("cnn_enabled", True)
         cnn_ready = False
-        try:
-            import torch, torchxrayvision as xrv, skimage
-            cnn_ready = True
-        except ImportError:
-            st.warning("CNN imaging requires: `torchxrayvision scikit-image` in requirements.txt")
+        if not cnn_enabled_flag:
+            st.info(
+                "🔵 CNN Imaging is disabled to save memory. "
+                "Enable it in the sidebar (⚙ Performance Settings) to use DenseNet-121. "
+                "All other imaging tabs (Echo, ECG, Spirometry, Fundus) are unaffected."
+            )
+        else:
+            try:
+                import torch, torchxrayvision as xrv, skimage
+                cnn_ready = True
+            except ImportError:
+                st.warning("CNN imaging requires: `torchxrayvision scikit-image` in requirements.txt")
 
         uploaded_xray = st.file_uploader(
             "Upload chest X-ray (JPG, PNG)",
@@ -5068,8 +5116,9 @@ elif "Medical Imaging" in page:
 
             with st.spinner("Running DenseNet-121 — classifying 18 pathologies..."):
                 try:
-                    model = xrv.models.DenseNet(weights="densenet121-res224-all")
-                    model.eval()
+                    model = load_densenet()
+                    if model is None:
+                        raise RuntimeError("DenseNet-121 could not be loaded — check torchxrayvision installation")
                     with torch.no_grad():
                         outputs = model(img_tensor[None,...])
                     pathologies = model.targets
@@ -5083,8 +5132,9 @@ elif "Medical Imaging" in page:
             masks, seg_targets = None, None
             with st.spinner("Running anatomical segmentation..."):
                 try:
-                    seg_model = xrv.baseline_models.chestx_det.PSPNet()
-                    seg_model.eval()
+                    seg_model = load_pspnet()
+                    if seg_model is None:
+                        raise RuntimeError("PSPNet could not be loaded")
                     with torch.no_grad():
                         seg_out = seg_model(img_tensor[None,...])
                     masks = seg_out[0].detach().numpy()
@@ -5218,6 +5268,12 @@ elif "Medical Imaging" in page:
                 file_stem="xray_analysis",
             )
             st.warning("AI screening only. Does not replace radiologist review.")
+            # Free CNN memory after use
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
 
     # ══════════════════════════════════════════════════════════════════════
     # TAB 2 — ECHOCARDIOGRAM
@@ -5768,17 +5824,24 @@ Provide a structured fundus report:
     )
 
     # ── Check dependencies ─────────────────────────────────
+    cnn_enabled_flag = st.session_state.get("cnn_enabled", True)
     cnn_ready = False
-    try:
-        import torch
-        import torchxrayvision as xrv
-        import skimage
-        cnn_ready = True
-    except ImportError:
-        st.warning(
-            "CNN imaging requires additional packages. "
-            "Add to requirements.txt: `torchxrayvision scikit-image`"
+    if not cnn_enabled_flag:
+        st.info(
+            "🔵 CNN Imaging is currently disabled. "
+            "Enable it in the sidebar (⚙ Performance Settings) to use DenseNet-121 X-ray analysis."
         )
+    else:
+        try:
+            import torch
+            import torchxrayvision as xrv
+            import skimage
+            cnn_ready = True
+        except ImportError:
+            st.warning(
+                "CNN imaging requires additional packages. "
+                "Add to requirements.txt: `torchxrayvision scikit-image`"
+            )
 
     uploaded_xray = st.file_uploader(
         "Upload chest X-ray (JPG, PNG)",
@@ -5834,8 +5897,9 @@ Provide a structured fundus report:
         # ── Classification ─────────────────────────────────
         with st.spinner("Running DenseNet-121 CNN — classifying 18 pathologies..."):
             try:
-                model = xrv.models.DenseNet(weights="densenet121-res224-all")
-                model.eval()
+                model = load_densenet()
+                if model is None:
+                    raise RuntimeError("DenseNet-121 could not be loaded")
                 with torch.no_grad():
                     outputs = model(img_tensor[None, ...])
                 pathologies = model.targets
@@ -5851,8 +5915,9 @@ Provide a structured fundus report:
         masks, seg_targets = None, None
         with st.spinner("Running anatomical segmentation..."):
             try:
-                seg_model = xrv.baseline_models.chestx_det.PSPNet()
-                seg_model.eval()
+                seg_model = load_pspnet()
+                if seg_model is None:
+                    raise RuntimeError("PSPNet could not be loaded")
                 with torch.no_grad():
                     seg_out = seg_model(img_tensor[None, ...])
                 masks = seg_out[0].detach().numpy()
@@ -6220,14 +6285,45 @@ Provide a structured fundus report:
                     st.image(spiro_disp, caption=f"Uploaded: {spiro_upload.name}",
                              use_container_width=True)
 
+                    st.warning(
+                        "⚠ **Spirometry / PFT reports only.** Do not upload ECG printouts, "
+                        "chest X-rays, echocardiograms, or other images here. "
+                        "The AI will validate the image type before reading values."
+                    )
+
                     if st.button("🔍 Read Spirometry Report with AI", type="primary", key="spiro_ai_btn"):
-                        with st.spinner("AI reading spirometry report..."):
+                        with st.spinner("Validating image type..."):
                             try:
                                 buf = _io.BytesIO()
                                 spiro_disp.save(buf, format="JPEG", quality=95)
                                 img_b64 = base64.b64encode(buf.getvalue()).decode()
 
-                                spiro_prompt = f"""You are a respiratory physician reading a spirometry/PFT report.
+                                # Step 1 — image type validation
+                                val_prompt = """Look at this image carefully.
+In ONE sentence, state what type of medical document or image this is.
+Then on a new line write ONLY one of these labels:
+SPIROMETRY_VALID — if this is a spirometry / pulmonary function test (PFT) report showing FEV1, FVC, flow-volume loop, or volume-time curve
+NOT_SPIROMETRY — if this is anything else (ECG, X-ray, echo, lab report, photo, etc.)"""
+                                val_resp, _ = vision_api_call(val_prompt, img_b64)
+                                is_spiro = val_resp and "SPIROMETRY_VALID" in val_resp.upper()
+                                img_desc = val_resp.split("\n")[0] if val_resp else "Unknown"
+
+                                if not is_spiro:
+                                    st.error(
+                                        f"❌ **Wrong image type detected.**\n\n"
+                                        f"**AI identified this as:** {img_desc}\n\n"
+                                        f"This tab only accepts **spirometry / PFT reports**. "
+                                        f"Please upload the correct report.\n\n"
+                                        f"**If you have an ECG:** use Medical Imaging → ECG Signal Analysis tab.\n"
+                                        f"**If you have a chest X-ray:** use Medical Imaging → Chest X-Ray tab.\n"
+                                        f"**If you have a lab report:** use Clinical NLP → Scan & Auto-Fill tab."
+                                    )
+                                    st.session_state["spiro_result"] = ""
+                                else:
+                                    st.success(f"✅ Spirometry report confirmed: {img_desc}")
+                                    with st.spinner("AI reading all spirometry values..."):
+
+                                        spiro_prompt = f"""You are a respiratory physician reading a spirometry/PFT report.
 Patient: Age {sp_age}, {sp_sex}, Height {sp_height}cm, Weight {sp_weight}kg, BMI {sp_bmi}
 Ethnicity: {sp_ethnic} | Smoking: {sp_smoking} | Indication: {sp_indication}
 
@@ -6283,9 +6379,9 @@ CRITICAL EXTRACTION RULES:
 7. patient_sex → extract Male or Female from the header
 8. If a value looks wrong (e.g. FEV1/FVC > 1.0, % predicted > 200), set it to null rather than guess"""
 
-                                spiro_raw, model_used = vision_api_call(spiro_prompt, img_b64)
-                                st.session_state["spiro_result"] = spiro_raw
-                                st.session_state["spiro_model"]  = model_used
+                                        spiro_raw, model_used = vision_api_call(spiro_prompt, img_b64)
+                                        st.session_state["spiro_result"] = spiro_raw
+                                        st.session_state["spiro_model"]  = model_used
                             except Exception as e:
                                 st.error(f"Spirometry read error: {e}")
 
